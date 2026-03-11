@@ -1,0 +1,28 @@
+/* Custom styles for the C++Now 2026 coroutine talk */
+
+.reveal pre code {
+  max-height: 600px;
+  font-size: 0.65em;
+  line-height: 1.3;
+}
+
+.reveal h1 {
+  font-size: 2.2em;
+}
+
+.reveal h2 {
+  font-size: 1.6em;
+}
+
+.reveal .small-code pre code {
+  font-size: 0.55em;
+}
+
+.reveal .two-column {
+  display: flex;
+  gap: 2em;
+}
+
+.reveal .two-column > * {
+  flex: 1;
+}

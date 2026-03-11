@@ -1,0 +1,7 @@
+node_modules/
+dist/
+slides.pdf
+.DS_Store
+*.swp
+*.swo
+*~

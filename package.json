@@ -1,0 +1,16 @@
+{
+  "name": "cppnow-26-coroutine-talk",
+  "version": "1.0.0",
+  "description": "C++Now 2026 Coroutine Talk",
+  "scripts": {
+    "start": "npx serve . -l 8000",
+    "build": "echo 'No build step required for reveal.js'"
+  },
+  "keywords": ["cppnow", "coroutines", "reveal.js"],
+  "author": "Johannes Kalmbach",
+  "license": "ISC",
+  "dependencies": {
+    "reveal.js": "^5.2.1",
+    "serve": "^14.2.4"
+  }
+}
