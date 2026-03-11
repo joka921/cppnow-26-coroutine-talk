@@ -26,3 +26,24 @@
 .reveal .two-column > * {
   flex: 1;
 }
+
+.reveal .two-column pre code {
+  font-size: 0.55em;
+}
+
+.reveal section h4 {
+  margin-top: 0.5em;
+  margin-bottom: 0.3em;
+}
+
+.reveal section ul {
+  font-size: 0.85em;
+}
+
+.reveal section ol {
+  font-size: 0.85em;
+}
+
+.reveal section ul ul {
+  font-size: 0.9em;
+}

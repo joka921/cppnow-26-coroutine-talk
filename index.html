@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Coroutines &mdash; C++Now 2026</title>
+    <title>No Compiler Required &mdash; C++Now 2026</title>
     <link rel="stylesheet" href="node_modules/reveal.js/dist/reset.css">
     <link rel="stylesheet" href="node_modules/reveal.js/dist/reveal.css">
     <link rel="stylesheet" href="node_modules/reveal.js/dist/theme/black.css" id="theme">
@@ -14,18 +14,1580 @@
     <div class="reveal">
       <div class="slides">
 
-        <!-- Title Slide -->
-        <section>
-          <h1>Coroutines</h1>
-          <h3>C++Now 2026</h3>
-          <p><small>Johannes Kalmbach</small></p>
-        </section>
+<!-- ============================================================ -->
+<!-- SECTION 0: Title & Motivation (3 slides)                      -->
+<!-- ============================================================ -->
 
-        <!-- Placeholder slide -->
-        <section>
-          <h2>Coming Soon</h2>
-          <p>Slides are under construction.</p>
-        </section>
+<!-- Slide 1: Title -->
+<section>
+  <h1 style="font-size:1.8em">No Compiler Required</h1>
+  <h3>Hand-Rolling C++20 Coroutines in C++17</h3>
+  <p><small>Johannes Kalmbach &mdash; C++Now 2026</small></p>
+</section>
+
+<!-- Slide 2: Motivation -->
+<section>
+  <h2>Why Would You Do This?</h2>
+  <ul>
+    <li>How does <code>co_await</code> actually work at the state-machine level?</li>
+    <li>Debug coroutine issues with understanding, not guesswork</li>
+    <li>Reason about compiler codegen &amp; optimize</li>
+    <li>Swap out the infrastructure without changing the protocol</li>
+    <li>Use coroutine patterns in C++17 codebases</li>
+  </ul>
+</section>
+
+<!-- Slide 3: Roadmap -->
+<section>
+  <h2>Roadmap</h2>
+  <ol>
+    <li><strong>Refresher</strong> &mdash; coroutine anatomy &amp; promise protocol</li>
+    <li><strong>Infrastructure</strong> &mdash; handles, frames, CRTP base, macros</li>
+    <li><strong>4 Examples</strong>
+      <ul>
+        <li>(a) Minimal iota generator</li>
+        <li>(b) Generator with local variables</li>
+        <li>(c) Task with symmetric transfer</li>
+        <li>(d) Exception handling</li>
+      </ul>
+    </li>
+    <li><strong>Stackful alternative</strong> &mdash; no heap, no indirection</li>
+    <li><strong>Rewriter</strong> &mdash; automating the transformation</li>
+  </ol>
+</section>
+
+<!-- ============================================================ -->
+<!-- SECTION 1: Refresher (3 slides)                               -->
+<!-- ============================================================ -->
+
+<!-- Slide 4: Coroutine anatomy -->
+<section>
+  <h2>Coroutine Anatomy</h2>
+  <div class="two-column">
+    <div>
+      <h4>Two halves</h4>
+      <ul>
+        <li><strong>Ramp</strong> &mdash; allocates frame, constructs promise, calls <code>get_return_object</code>, awaits <code>initial_suspend</code></li>
+        <li><strong>Actor</strong> &mdash; switch/goto state machine, executes body between suspension points</li>
+      </ul>
+      <p style="margin-top:0.5em"><small>Frame lives on the heap &bull; Promise object inside the frame &bull; Each <code>co_yield</code>/<code>co_await</code> = suspension point</small></p>
+    </div>
+    <div>
+      <pre><code class="language-cpp" data-trim data-noescape>
+// C++20 iota generator
+generator&lt;int&gt; iota(int start, int end) {
+  while (start &lt; end) {
+    co_yield start++;
+  }
+}
+
+// Usage
+for (int v : iota(0, 5)) {
+  std::cout &lt;&lt; v &lt;&lt; "\n";
+}
+      </code></pre>
+    </div>
+  </div>
+</section>
+
+<!-- Slide 5: Promise protocol recap -->
+<section>
+  <h2>Promise Protocol Recap</h2>
+  <div class="two-column">
+    <div>
+      <h4>promise_type</h4>
+      <ul style="font-size:0.8em">
+        <li><code>get_return_object()</code></li>
+        <li><code>initial_suspend()</code></li>
+        <li><code>final_suspend()</code></li>
+        <li><code>yield_value(expr)</code></li>
+        <li><code>return_void()</code> / <code>return_value(v)</code></li>
+        <li><code>unhandled_exception()</code></li>
+      </ul>
+    </div>
+    <div>
+      <h4>Awaitable</h4>
+      <ul style="font-size:0.8em">
+        <li><code>await_ready()</code> &rarr; <code>bool</code></li>
+        <li><code>await_suspend(handle)</code> &rarr; <code>void</code> / <code>bool</code> / <code>handle</code></li>
+        <li><code>await_resume()</code> &rarr; result</li>
+      </ul>
+      <h4 style="margin-top:1em">coroutine_handle</h4>
+      <ul style="font-size:0.8em">
+        <li><code>resume()</code>, <code>destroy()</code>, <code>done()</code></li>
+        <li><code>from_promise(p)</code>, <code>promise()</code></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- Slide 6: What the compiler does -->
+<section>
+  <h2>What the Compiler Does</h2>
+  <pre><code class="language-cpp" data-trim data-noescape>
+// RAMP (called once)
+void* frame = operator new(sizeof(CoroFrame));
+auto&amp; promise = frame-&gt;promise;
+auto ret = promise.get_return_object();
+co_await promise.initial_suspend();    // suspension point 0
+// ... return ret to caller ...
+
+// ACTOR (resumed at each suspension point)
+switch (suspend_index) {
+  case 0: goto resume_0;
+  case 1: goto resume_1;
+  // ...
+}
+// execute body between suspension points
+
+// DESTROY (cleanup)
+// destroy locals alive at current suspension point
+// delete frame
+  </code></pre>
+  <p><strong>We will build all of this by hand.</strong></p>
+</section>
+
+<!-- ============================================================ -->
+<!-- SECTION 2: Infrastructure (12 slides + discussion)            -->
+<!-- ============================================================ -->
+
+<!-- Slide 7: Section title -->
+<section>
+  <h1>Building the Infrastructure</h1>
+  <p>Handles, frames, storage, macros</p>
+</section>
+
+<!-- Slide 8: HandleFrame -->
+<section>
+  <h2>HandleFrame</h2>
+  <p>Type-erased base &mdash; two function pointers</p>
+  <pre><code class="language-cpp" data-trim data-noescape>
+// A type-erased "base" for a coroutine frame.
+// resumeFunc returns a handle for symmetric transfer trampolining.
+struct HandleFrame {
+  stackless_coroutine_handle&lt;void&gt; (*resumeFunc)(void*);
+  void (*destroyFunc)(void*);
+};
+  </code></pre>
+  <ul>
+    <li><code>resumeFunc</code> returns a handle &rarr; enables <strong>symmetric transfer</strong></li>
+    <li><code>destroyFunc</code> cleans up the frame</li>
+    <li>Both take <code>void*</code> &mdash; type erasure via the frame pointer</li>
+  </ul>
+</section>
+
+<!-- Slide 9: stackless_coroutine_handle<void> -->
+<section>
+  <h2>stackless_coroutine_handle&lt;void&gt;</h2>
+  <pre><code class="language-cpp" data-trim data-noescape>
+namespace detail {
+struct stackless_handle_base {
+  HandleFrame* ptr;
+
+  stackless_handle_base() noexcept : ptr(nullptr) {}
+  stackless_handle_base(HandleFrame* ptr) noexcept : ptr(ptr) {}
+
+  void resume();  // trampoline — defined later
+  void destroy() { ptr-&gt;destroyFunc(reinterpret_cast&lt;void*&gt;(ptr)); }
+  operator bool() const { return static_cast&lt;bool&gt;(ptr); }
+  bool done() const { return ptr-&gt;resumeFunc == nullptr; }
+};
+}
+
+template &lt;&gt;
+struct stackless_coroutine_handle&lt;void&gt;
+    : public detail::stackless_handle_base {
+  using stackless_handle_base::stackless_handle_base;
+};
+  </code></pre>
+</section>
+
+<!-- Slide 10: stackless_coroutine_handle<Promise> -->
+<section>
+  <h2>stackless_coroutine_handle&lt;Promise&gt;</h2>
+  <pre><code class="language-cpp" data-trim data-noescape>
+template &lt;typename Promise&gt;
+struct stackless_coroutine_handle
+    : public detail::stackless_handle_base {
+  using stackless_handle_base::stackless_handle_base;
+
+  // Promise lives right after HandleFrame in the coroutine frame
+  static constexpr size_t promise_offset =
+      (sizeof(HandleFrame) + alignof(Promise) - 1)
+      &amp; ~(alignof(Promise) - 1);
+
+  static stackless_coroutine_handle from_promise(Promise&amp; p) {
+    auto* ptr = reinterpret_cast&lt;HandleFrame*&gt;(
+        reinterpret_cast&lt;char*&gt;(&amp;p) - promise_offset);
+    return stackless_coroutine_handle{ptr};
+  }
+
+  Promise&amp; promise() {
+    return *reinterpret_cast&lt;Promise*&gt;(
+        reinterpret_cast&lt;char*&gt;(ptr) + promise_offset);
+  }
+};
+  </code></pre>
+</section>
+
+<!-- Slide 11: Trampoline (symmetric transfer) -->
+<section>
+  <h2>Trampoline (Symmetric Transfer)</h2>
+  <pre><code class="language-cpp" data-trim data-noescape>
+// After stackless_coroutine_handle&lt;void&gt; is complete:
+inline void detail::stackless_handle_base::resume() {
+  stackless_coroutine_handle&lt;void&gt; next =
+      ptr-&gt;resumeFunc(reinterpret_cast&lt;void*&gt;(ptr));
+  while (next.ptr) {
+    next = next.ptr-&gt;resumeFunc(
+        reinterpret_cast&lt;void*&gt;(next.ptr));
+  }
+}
+  </code></pre>
+  <ul>
+    <li><code>resumeFunc</code> returns the <em>next</em> handle to resume</li>
+    <li>Loop replaces recursive <code>.resume()</code> calls &rarr; <strong>flat stack</strong></li>
+    <li>Null handle = "no more transfers, stop"</li>
+  </ul>
+</section>
+
+<!-- Slide 12: SuspendAlways / SuspendNever -->
+<section>
+  <h2>SuspendAlways / SuspendNever</h2>
+  <pre><code class="language-cpp" data-trim data-noescape>
+struct SuspendAlways {
+  static constexpr bool await_ready() noexcept { return false; }
+
+  template &lt;typename Handle&gt;
+  static constexpr void await_suspend(Handle) noexcept {}
+
+  static constexpr void await_resume() noexcept {}
+};
+
+struct SuspendNever {
+  static constexpr bool await_ready() noexcept { return true; }
+
+  template &lt;typename Handle&gt;
+  static constexpr void await_suspend(Handle) noexcept {}
+
+  static constexpr void await_resume() noexcept {}
+};
+  </code></pre>
+  <p><small>Templated <code>await_suspend</code> &mdash; works with our custom handle types</small></p>
+</section>
+
+<!-- Slide 13: coro_storage -->
+<section>
+  <h2>coro_storage</h2>
+  <p>Storing local variables across suspension points</p>
+  <pre><code class="language-cpp" data-trim data-noescape>
+template &lt;typename Ref, bool isOwningV&gt;
+struct coro_storage {
+  static constexpr bool isOwning = isOwningV;
+  // Owning: stores decay_t&lt;Ref&gt; by value
+  // Non-owning: stores a pointer
+  using Storage = std::conditional_t&lt;isOwning,
+      std::decay_t&lt;Ref&gt;,
+      std::add_pointer_t&lt;std::decay_t&lt;Ref&gt;&gt;&gt;;
+
+  alignas(Storage) char buffer[sizeof(Storage)];
+
+  struct Proxy { Ref ref_; };
+
+  Proxy get() noexcept {
+    Storage&amp; s = *std::launder(
+        reinterpret_cast&lt;Storage*&gt;(buffer));
+    if constexpr (isOwning) return Proxy{static_cast&lt;Ref&gt;(s)};
+    else return Proxy{static_cast&lt;Ref&gt;(*s)};
+  }
+
+  void destroy() noexcept(...) {
+    std::launder(reinterpret_cast&lt;Storage*&gt;(buffer))-&gt;~Storage();
+  }
+};
+  </code></pre>
+</section>
+
+<!-- Slide 14: CRTP base layout -->
+<section>
+  <h2>CRTP Base Layout</h2>
+  <pre><code class="language-cpp" data-trim data-noescape>
+template &lt;typename Derived, typename PromiseType, bool isNoexcept&gt;
+struct stackless_coro_crtp {
+  // Must match stackless_coroutine_handle layout:
+  // promise_ directly after frame_
+  HandleFrame frame_;
+  PromiseType promise_;
+
+  size_t suspendIdx_ = 0;
+  size_t currentTryBlock_ = CO_NO_TRY_BLOCK;  // exception dispatch
+
+  // Awaiters for initial_suspend() and final_suspend()
+  coro_storage&lt;decltype(promise_.initial_suspend())&amp;, true&gt;
+      initial_awaiter_;
+  coro_storage&lt;decltype(promise_.final_suspend())&amp;, true&gt;
+      final_awaiter_;
+
+  // Constructor: wire up function pointers
+  stackless_coro_crtp() {
+    frame_.resumeFunc  = &amp;stackless_coro_crtp::resume;
+    frame_.destroyFunc = &amp;stackless_coro_crtp::destroy;
+  }
+
+  // Derived must implement:
+  //   doStepImpl()            — the actor state machine
+  //   destroySuspendedCoro()  — cleanup at each suspend point
+};
+  </code></pre>
+</section>
+
+<!-- Slide 15: ramp() function -->
+<section>
+  <h2>ramp() &mdash; The Coroutine Entry Point</h2>
+  <pre><code class="language-cpp" data-trim data-noescape>
+template &lt;typename... CoroArgs&gt;
+static auto ramp(CoroArgs&amp;&amp;... coroArgs) {
+  // 1. Allocate the frame
+  void* coroMem = promise_allocate&lt;PromiseType&gt;(
+      sizeof(Derived), std::forward&lt;CoroArgs&gt;(coroArgs)...);
+
+  // 2. Placement-new the Derived frame
+  auto* frame = new(coroMem) Derived{
+      std::forward&lt;CoroArgs&gt;(coroArgs)...};
+
+  // 3. get_return_object (stored on caller's stack)
+  auto ret = frame-&gt;promise_.get_return_object();
+
+  // 4. co_await initial_suspend
+  CO_STORAGE_CONSTRUCT(frame-&gt;initial_awaiter_,
+      (frame-&gt;promise_.initial_suspend()));
+  auto handle = frame-&gt;getHandle();
+  CO_AWAIT_IMPL_IMPL(frame-&gt;initial_awaiter_.get().ref_,
+                      handle, ret);
+
+  // 5. If initial_suspend didn't suspend, resume immediately
+  handle.resume();
+  return ret;
+}
+  </code></pre>
+</section>
+
+<!-- Slide 16: doStep() actor -->
+<section>
+  <h2>doStep() &mdash; The Actor Function</h2>
+  <pre><code class="language-cpp" data-trim data-noescape>
+stackless_coroutine_handle&lt;void&gt; doStep() noexcept(isNoexcept) {
+  if constexpr (isNoexcept) {
+    // No exception handling needed
+    return derived().doStepImpl();
+  } else {
+    auto&amp; d = derived();
+    try {
+      return d.doStepImpl();
+    } catch (...) {
+      auto [handle, frame_destroyed] = d.handleException();
+      if (frame_destroyed) return handle;
+
+      // Exception was caught, re-enter state machine
+      if (!d.done()) {
+        return d.doStep();  // recursive call for catch dispatch
+      }
+      return handle;
+    }
+  }
+}
+  </code></pre>
+  <p><small>The <code>try/catch</code> wrapper enables coroutine-level exception dispatch</small></p>
+</section>
+
+<!-- Slide 17: destroy() -->
+<section>
+  <h2>destroy()</h2>
+  <pre><code class="language-cpp" data-trim data-noescape>
+void destroy() {
+  if (!derived().done()) {
+    // Still suspended mid-body: clean up locals
+    derived().destroySuspendedCoro(derived().suspendIdx_);
+  } else {
+    // At final suspension point: only final_awaiter_ remains
+    derived().final_awaiter_.get().ref_.await_resume();
+    derived().final_awaiter_.destroy();
+  }
+  deleteFrame();  // destructor + operator delete
+}
+  </code></pre>
+  <ul>
+    <li><code>destroySuspendedCoro(idx)</code> knows exactly which locals are alive at each suspension point</li>
+    <li>Mirror of the compiler's "cleanup based on suspend point" logic</li>
+  </ul>
+</section>
+
+<!-- Slide 18: Macro reference -->
+<section>
+  <h2>Macro Reference</h2>
+  <pre><code class="language-cpp" data-trim data-noescape>
+// Access stored value
+#define CO_GET(mem)  this-&gt;mem.get().ref_
+
+// Construct into coro_storage
+#define CO_INIT(mem, ...)  CO_STORAGE_CONSTRUCT(this-&gt;mem, __VA_ARGS__)
+
+// co_yield value
+#define CO_YIELD(index, awaiterMem, value)
+  // yield_value &rarr; construct awaiter &rarr; set suspendIdx
+  // &rarr; await &rarr; label &rarr; await_resume &rarr; destroy awaiter
+
+// co_await expr
+#define CO_AWAIT(index, awaiterMem, expr, ...)
+  // get_awaiter &rarr; construct awaiter &rarr; set suspendIdx
+  // &rarr; await &rarr; label &rarr; result = await_resume
+
+// co_return
+#define CO_RETURN_VOID(index, finalAwaiterMem)
+  // return_void &rarr; destroySuspendedCoro &rarr; setDone
+  // &rarr; final_suspend &rarr; await final awaiter
+
+#define CO_RETURN_VALUE(index, finalAwaiterMem, value)
+  // return_value &rarr; ... same as above
+  </code></pre>
+</section>
+
+<!-- Slide 19: Discussion -->
+<section>
+  <h2>Discussion</h2>
+  <h3>Questions on the infrastructure?</h3>
+  <div class="two-column">
+    <div>
+      <h4>What we built</h4>
+      <ul>
+        <li>HandleFrame &mdash; type-erased vtable</li>
+        <li>coroutine_handle &mdash; pointer to frame</li>
+        <li>Trampoline &mdash; flat symmetric transfer</li>
+        <li>coro_storage &mdash; local variable lifetime</li>
+        <li>CRTP base &mdash; ramp/actor/destroy</li>
+      </ul>
+    </div>
+    <div>
+      <h4>What's left for each coroutine</h4>
+      <ul>
+        <li><code>doStepImpl()</code> &mdash; the state machine</li>
+        <li><code>destroySuspendedCoro()</code> &mdash; cleanup table</li>
+        <li>Frame members &mdash; parameters + locals</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- SECTION 3a: Minimal iota Generator (8 slides + discussion)    -->
+<!-- ============================================================ -->
+
+<!-- Slide 20: Section title -->
+<section>
+  <h1>Example (a)</h1>
+  <h3>Minimal Generator</h3>
+</section>
+
+<!-- Slide 21: C++20 version -->
+<section>
+  <h2>iota &mdash; C++20</h2>
+  <pre><code class="language-cpp" data-trim data-noescape>
+generator&lt;int&gt; iota(int start, int end) {
+  while (start &lt; end) {
+    co_yield start++;
+  }
+}
+  </code></pre>
+  <p>The simplest possible generator. One suspension point inside the loop.</p>
+</section>
+
+<!-- Slide 22: Frame layout -->
+<section>
+  <h2>iota &mdash; Frame Layout</h2>
+  <pre><code class="language-cpp" data-trim data-noescape>
+auto iota_unified(int start, int end) {
+  using promise_type = heap_generator&lt;int&gt;::promise_type;
+
+  struct CoroFrame
+      : stackless_coro_crtp&lt;CoroFrame, promise_type, true&gt; {
+    using CoroFrameBase =
+        stackless_coro_crtp&lt;CoroFrame, promise_type, true&gt;;
+
+    int start_;    // parameter → stored in frame
+    int end_;      // parameter → stored in frame
+
+    CoroFrame(int s, int e) : start_(s), end_(e) {}
+
+    // ... doStepImpl, destroySuspendedCoro ...
+  };
+
+  return CoroFrame::ramp(start, end);
+}
+  </code></pre>
+  <p><small>Parameters become frame members. No local variables &rarr; no <code>coro_storage</code> needed.</small></p>
+</section>
+
+<!-- Slide 23: doStepImpl() expanded -->
+<section>
+  <h2>iota &mdash; doStepImpl() (expanded)</h2>
+  <pre><code class="language-cpp" data-trim data-noescape>
+stackless_coroutine_handle&lt;void&gt; doStepImpl() {
+  // Jump table: resume at the right suspension point
+  switch (this-&gt;suspendIdx_) {
+    case 0: break;          // first entry (after initial_suspend)
+    case 1: goto label_1;   // resume after co_yield
+  }
+
+  // After initial_suspend:
+  CO_GET(initial_awaiter_).await_resume();
+  this-&gt;initial_awaiter_.destroy();
+
+  while (this-&gt;start_ &lt; this-&gt;end_) {
+    // co_yield start_:
+    // 1. promise.yield_value(start_) → construct awaiter
+    // 2. suspendIdx_ = 1
+    // 3. await the awaiter (return to caller)
+    CO_YIELD(1, initial_awaiter_, (this-&gt;start_));
+    // label_1: ← resume here after caller calls .resume()
+    ++this-&gt;start_;
+  }
+
+  // co_return (implicit void)
+  CO_RETURN_VOID(2, final_awaiter_);
+}
+  </code></pre>
+</section>
+
+<!-- Slide 24: doStepImpl() with macros -->
+<section>
+  <h2>iota &mdash; doStepImpl() (macro version)</h2>
+  <pre><code class="language-cpp" data-trim data-noescape>
+stackless_coroutine_handle&lt;void&gt; doStepImpl() {
+  switch (this-&gt;suspendIdx_) {
+    case 0: break;
+    case 1: goto label_1;
+  }
+
+  CO_GET(initial_awaiter_).await_resume();
+  this-&gt;initial_awaiter_.destroy();
+
+  while (this-&gt;start_ &lt; this-&gt;end_) {
+    CO_YIELD(1, initial_awaiter_, (this-&gt;start_));
+    ++this-&gt;start_;
+  }
+  CO_RETURN_VOID(2, final_awaiter_);
+}
+  </code></pre>
+  <p>Once you know the pattern, the macro version is almost as readable as the C++20 original.</p>
+</section>
+
+<!-- Slide 25: destroySuspendedCoro() -->
+<section>
+  <h2>iota &mdash; destroySuspendedCoro()</h2>
+  <pre><code class="language-cpp" data-trim data-noescape>
+void destroySuspendedCoro(size_t suspendIdx_) {
+  switch (suspendIdx_) {
+    case 0:
+      // Suspended at initial_suspend
+      this-&gt;initial_awaiter_.destroy();
+      return;
+    case 1:
+      // Suspended at co_yield (mid-loop)
+      this-&gt;initial_awaiter_.destroy();
+      // fallthrough — no locals to destroy
+    case 2:
+      // At co_return — nothing left
+      return;
+  }
+}
+  </code></pre>
+  <ul>
+    <li>Each case corresponds to a suspension point</li>
+    <li>Lists exactly which objects are alive and need destruction</li>
+    <li>The compiler generates equivalent tables internally</li>
+  </ul>
+</section>
+
+<!-- Slide 26: Putting it together -->
+<section>
+  <h2>iota &mdash; Putting It Together</h2>
+  <pre><code class="language-cpp" data-trim data-noescape>
+auto iota_unified(int start, int end) {
+  // ... CoroFrame definition ...
+
+  return CoroFrame::ramp(start, end);
+  // ramp() does:
+  //   1. new CoroFrame(start, end)
+  //   2. promise.get_return_object() → heap_generator&lt;int&gt;
+  //   3. co_await promise.initial_suspend()
+  //   4. return the generator to the caller
+}
+
+// Usage — identical to C++20:
+for (int v : iota_unified(0, 5)) {
+  std::cout &lt;&lt; v &lt;&lt; "\n";
+}
+  </code></pre>
+</section>
+
+<!-- Slide 27: Summary -->
+<section>
+  <h2>iota &mdash; Summary</h2>
+  <div class="two-column">
+    <div>
+      <h4>What changed vs C++20</h4>
+      <ul>
+        <li>Coroutine <strong>body</strong> is rewritten as a state machine</li>
+        <li>Parameters become frame members</li>
+        <li>Added <code>destroySuspendedCoro()</code></li>
+      </ul>
+    </div>
+    <div>
+      <h4>What stayed the same</h4>
+      <ul>
+        <li>Promise type &mdash; identical</li>
+        <li>Generator type &mdash; identical</li>
+        <li>Awaitable protocol &mdash; identical</li>
+        <li>Caller code &mdash; identical</li>
+      </ul>
+    </div>
+  </div>
+  <p style="margin-top:1em"><strong>The body transformation is the only difference.</strong></p>
+</section>
+
+<!-- Slide 28: Discussion -->
+<section>
+  <h2>Discussion</h2>
+  <h3>The simple case &mdash; questions?</h3>
+</section>
+
+<!-- ============================================================ -->
+<!-- SECTION 3b: Generator with Local Variables (7 slides + disc)   -->
+<!-- ============================================================ -->
+
+<!-- Slide 29: Section title -->
+<section>
+  <h1>Example (b)</h1>
+  <h3>Local Variables Across Suspension</h3>
+</section>
+
+<!-- Slide 30: C++20 version -->
+<section>
+  <h2>string_prepend &mdash; C++20</h2>
+  <pre><code class="language-cpp" data-trim data-noescape>
+generator&lt;std::string&gt; string_prepend(
+    auto&amp;&amp; rangeOfStrings, std::string prefix) {
+  for (const auto&amp; s : rangeOfStrings) {
+    co_yield (prefix + s);
+  }
+}
+  </code></pre>
+  <ul>
+    <li>Range-for loop &rarr; iterator variables live across suspension</li>
+    <li><code>prefix + s</code> creates a temporary that must survive the yield</li>
+    <li>These locals need explicit lifetime management in the frame</li>
+  </ul>
+</section>
+
+<!-- Slide 31: Frame with coro_storage -->
+<section>
+  <h2>string_prepend &mdash; Frame Layout</h2>
+  <pre><code class="language-cpp" data-trim data-noescape>
+struct CoroFrame
+    : stackless_coro_crtp&lt;CoroFrame, promise_type, true&gt; {
+  RangeOfStrings&amp;&amp; rangeOfStrings_;
+  std::string prefix_;
+
+  // Local variables stored as coro_storage:
+  using It  = decltype(std::begin(rangeOfStrings_));
+  using End = decltype(std::end(rangeOfStrings_));
+
+  coro_storage&lt;It&amp;, std::is_object_v&lt;It&gt;&gt;    it_;    // iterator
+  coro_storage&lt;const End&amp;, std::is_object_v&lt;End&gt;&gt; end_; // sentinel
+  coro_storage&lt;std::string&amp;&amp;, true&gt;           tmp_;   // yield temp
+
+  CoroFrame(RangeOfStrings&amp;&amp; ros, std::string pref)
+      : rangeOfStrings_(std::forward&lt;RangeOfStrings&gt;(ros)),
+        prefix_(std::move(pref)) {}
+};
+  </code></pre>
+  <ul>
+    <li><code>it_</code>, <code>end_</code>: owning if object type, pointer if reference</li>
+    <li><code>tmp_</code>: owning &mdash; the temporary <code>std::string</code> from <code>prefix + s</code></li>
+  </ul>
+</section>
+
+<!-- Slide 32: doStepImpl() -->
+<section>
+  <h2>string_prepend &mdash; doStepImpl()</h2>
+  <pre><code class="language-cpp" data-trim data-noescape>
+stackless_coroutine_handle&lt;void&gt; doStepImpl() {
+  switch (this-&gt;suspendIdx_) {
+    case 0: break;
+    case 1: goto label_1;
+  }
+
+  CO_GET(initial_awaiter_).await_resume();
+  this-&gt;initial_awaiter_.destroy();
+
+  CO_INIT(it_,  (this-&gt;rangeOfStrings_.begin()));
+  CO_INIT(end_, (this-&gt;rangeOfStrings_.end()));
+
+  for (; CO_GET(it_) != CO_GET(end_); ++CO_GET(it_)) {
+    CO_INIT(tmp_, (this-&gt;prefix_ + *CO_GET(it_)));  // construct temp
+    CO_YIELD(1, initial_awaiter_, CO_GET(tmp_));
+    this-&gt;tmp_.destroy();                            // destroy after resume
+  }
+
+  CO_RETURN_VOID(2, final_awaiter_);
+}
+  </code></pre>
+  <p><small><code>CO_INIT</code> = placement new &bull; <code>CO_GET</code> = access via proxy &bull; explicit <code>destroy()</code> for temporaries</small></p>
+</section>
+
+<!-- Slide 33: destroySuspendedCoro() -->
+<section>
+  <h2>string_prepend &mdash; destroySuspendedCoro()</h2>
+  <pre><code class="language-cpp" data-trim data-noescape>
+void destroySuspendedCoro(size_t suspendIdx_) {
+  switch (suspendIdx_) {
+    case 0:
+      // At initial_suspend — only awaiter alive
+      this-&gt;initial_awaiter_.destroy();
+      return;
+    case 1:
+      // Mid-loop, at co_yield — tmp_ is alive!
+      this-&gt;initial_awaiter_.destroy();
+      tmp_.destroy();      // ← the temporary string
+      // fallthrough
+    case 2:
+      return;
+  }
+}
+  </code></pre>
+  <ul>
+    <li>At suspension point 1: <code>tmp_</code> has been constructed but not yet destroyed</li>
+    <li>At suspension point 0 or 2: <code>tmp_</code> doesn't exist</li>
+    <li>This is exactly what the compiler tracks internally</li>
+  </ul>
+</section>
+
+<!-- Slide 34: Key takeaway -->
+<section>
+  <h2>coro_storage Design</h2>
+  <ul>
+    <li><strong>Owning</strong> (<code>isOwning=true</code>): stores the object by value in the buffer
+      <ul><li>Used for temporaries, rvalue refs, objects that must outlive suspension</li></ul>
+    </li>
+    <li><strong>Non-owning</strong> (<code>isOwning=false</code>): stores a pointer
+      <ul><li>Used for lvalue references &mdash; the referent outlives the coroutine</li></ul>
+    </li>
+    <li><strong>Proxy pattern</strong>: <code>storage.get().ref_</code> gives the correct reference type
+      <ul><li>Rvalue refs stay rvalue refs (no accidental <code>std::move</code> through a getter)</li></ul>
+    </li>
+    <li><strong>Placement new + explicit destroy</strong>: manual lifetime, no default construction needed</li>
+  </ul>
+</section>
+
+<!-- Slide 35: Side-by-side -->
+<section>
+  <h2>Side-by-Side Comparison</h2>
+  <div class="two-column">
+    <div>
+      <h4>C++20</h4>
+      <pre><code class="language-cpp" data-trim data-noescape>
+for (const auto&amp; s
+     : rangeOfStrings) {
+  co_yield (prefix + s);
+}
+      </code></pre>
+    </div>
+    <div>
+      <h4>C++17 (hand-lowered)</h4>
+      <pre><code class="language-cpp" data-trim data-noescape>
+CO_INIT(it_,
+    (rangeOfStrings_.begin()));
+CO_INIT(end_,
+    (rangeOfStrings_.end()));
+
+for (; CO_GET(it_) != CO_GET(end_);
+     ++CO_GET(it_)) {
+  CO_INIT(tmp_,
+      (prefix_ + *CO_GET(it_)));
+  CO_YIELD(1, initial_awaiter_,
+            CO_GET(tmp_));
+  tmp_.destroy();
+}
+      </code></pre>
+    </div>
+  </div>
+  <p><small>The structure is preserved. The ceremony is the lifetime management.</small></p>
+</section>
+
+<!-- Slide 36: Discussion -->
+<section>
+  <h2>Discussion</h2>
+  <h3>Local variable lifetime &mdash; questions?</h3>
+</section>
+
+<!-- ============================================================ -->
+<!-- SECTION 3c: Task with Symmetric Transfer (10 slides + disc)   -->
+<!-- ============================================================ -->
+
+<!-- Slide 37: Section title -->
+<section>
+  <h1>Example (c)</h1>
+  <h3>Task with Symmetric Transfer</h3>
+</section>
+
+<!-- Slide 38: What is symmetric transfer? -->
+<section>
+  <h2>What Is Symmetric Transfer?</h2>
+  <div class="two-column">
+    <div>
+      <h4>The problem</h4>
+      <ul>
+        <li>Task A <code>co_await</code>s Task B</li>
+        <li>Task B <code>co_await</code>s Task C</li>
+        <li>Each <code>.resume()</code> adds a stack frame</li>
+        <li>Deep chains &rarr; <strong>stack overflow</strong></li>
+      </ul>
+    </div>
+    <div>
+      <h4>The solution</h4>
+      <ul>
+        <li><code>await_suspend</code> returns a <strong>handle</strong></li>
+        <li>Caller resumes that handle instead of the current one</li>
+        <li>Trampoline loop &mdash; <strong>flat stack</strong></li>
+        <li>No recursion, O(1) stack depth</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- Slide 39: task_promise -->
+<section>
+  <h2>task_promise</h2>
+  <pre><code class="language-cpp" data-trim data-noescape>
+template &lt;typename T, template &lt;typename...&gt; typename TaskHandle&gt;
+class task_promise {
+public:
+  using handle_type = TaskHandle&lt;task_promise&gt;;
+
+  ::task&lt;T, TaskHandle&gt; get_return_object() noexcept;
+
+  // Lazy: always suspend at start
+  constexpr SuspendAlways initial_suspend() const noexcept { return {}; }
+
+  // Symmetric transfer: return to caller on completion
+  task_final_awaiter&lt;TaskHandle&gt; final_suspend() const noexcept
+  { return {}; }
+
+  void return_value(T value) { value_ = std::move(value); }
+  void unhandled_exception() {
+    exception_ = std::current_exception();
+  }
+
+  TaskHandle&lt;void&gt; continuation_;  // who to resume when done
+
+private:
+  std::optional&lt;T&gt; value_;
+  std::exception_ptr exception_;
+};
+  </code></pre>
+</section>
+
+<!-- Slide 40: task_final_awaiter -->
+<section>
+  <h2>task_final_awaiter</h2>
+  <pre><code class="language-cpp" data-trim data-noescape>
+template &lt;template &lt;typename...&gt; typename TaskHandle&gt;
+struct task_final_awaiter {
+  static constexpr bool await_ready() noexcept { return false; }
+
+  template &lt;typename Promise&gt;
+  TaskHandle&lt;void&gt; await_suspend(TaskHandle&lt;Promise&gt; h) noexcept {
+    if (h.promise().continuation_) {
+      return h.promise().continuation_;   // resume caller
+    }
+    return noop_coroutine();              // top-level: stop
+  }
+
+  static constexpr void await_resume() noexcept {}
+};
+  </code></pre>
+  <ul>
+    <li><code>await_suspend</code> returns a handle &rarr; symmetric transfer</li>
+    <li>If there's a continuation (caller), resume it</li>
+    <li>Otherwise, return <code>noop_coroutine()</code> to stop the trampoline</li>
+  </ul>
+</section>
+
+<!-- Slide 41: task_awaiter -->
+<section>
+  <h2>task_awaiter</h2>
+  <pre><code class="language-cpp" data-trim data-noescape>
+template &lt;typename T, template &lt;typename...&gt; typename TaskHandle&gt;
+class task_awaiter {
+  using handle_type = TaskHandle&lt;task_promise&lt;T, TaskHandle&gt;&gt;;
+
+public:
+  explicit task_awaiter(handle_type coro) noexcept : coro_(coro) {}
+
+  bool await_ready() const noexcept { return coro_.done(); }
+
+  // Symmetric transfer: store caller, return inner task's handle
+  template &lt;typename CallerPromise&gt;
+  handle_type await_suspend(
+      TaskHandle&lt;CallerPromise&gt; caller) noexcept {
+    coro_.promise().continuation_ = caller;  // remember caller
+    return coro_;                             // resume inner task
+  }
+
+  decltype(auto) await_resume() {
+    return coro_.promise().result();
+  }
+
+private:
+  handle_type coro_;
+};
+  </code></pre>
+</section>
+
+<!-- Slide 42: compute_value: C++20 vs hand-lowered -->
+<section>
+  <h2>compute_value &mdash; Simple co_return</h2>
+  <div class="two-column">
+    <div>
+      <h4>C++20</h4>
+      <pre><code class="language-cpp" data-trim data-noescape>
+task&lt;size_t&gt; compute_value(size_t x) {
+  co_return x * 2;
+}
+      </code></pre>
+    </div>
+    <div>
+      <h4>Hand-lowered</h4>
+      <pre><code class="language-cpp" data-trim data-noescape>
+struct CoroFrame : stackless_coro_crtp&lt;
+    CoroFrame, promise_type, true&gt; {
+  size_t x_;
+  CoroFrame(size_t x) : x_(x) {}
+
+  auto doStepImpl() {
+    switch (this-&gt;suspendIdx_) {
+      case 0: break;
+    }
+    CO_GET(initial_awaiter_)
+        .await_resume();
+    this-&gt;initial_awaiter_.destroy();
+    CO_RETURN_VALUE(1, final_awaiter_,
+        (this-&gt;x_ * 2));
+  }
+};
+return CoroFrame::ramp(x);
+      </code></pre>
+    </div>
+  </div>
+</section>
+
+<!-- Slide 43: add_values: C++20 version -->
+<section>
+  <h2>add_values &mdash; C++20</h2>
+  <pre><code class="language-cpp" data-trim data-noescape>
+task&lt;size_t&gt; add_values(size_t a, size_t b) {
+  size_t va = co_await compute_value(a);
+  size_t vb = co_await compute_value(b);
+  co_return va + vb;
+}
+  </code></pre>
+  <p>Two <code>co_await</code> calls &mdash; each triggers symmetric transfer to the inner task, then back.</p>
+</section>
+
+<!-- Slide 44: add_values: frame layout -->
+<section>
+  <h2>add_values &mdash; Frame Layout</h2>
+  <pre><code class="language-cpp" data-trim data-noescape>
+struct CoroFrame
+    : stackless_coro_crtp&lt;CoroFrame, promise_type, false&gt; {
+  size_t a_, b_;
+  size_t res_, va_, vb_;
+
+  // The inner task and its awaiter need to live across suspension
+  coro_storage&lt;task&lt;size_t, stackless_coroutine_handle&gt;&amp;, true&gt;
+      task_storage_;
+  coro_storage&lt;detail::task_awaiter&lt;
+      size_t, stackless_coroutine_handle&gt;&amp;, true&gt;
+      awaiter_storage_;
+
+  CoroFrame(size_t a, size_t b) : a_(a), b_(b) {}
+};
+  </code></pre>
+  <ul>
+    <li><code>task_storage_</code>: the inner <code>task</code> object (owns the inner frame)</li>
+    <li><code>awaiter_storage_</code>: the <code>task_awaiter</code> for symmetric transfer</li>
+  </ul>
+</section>
+
+<!-- Slide 45: add_values: doStepImpl() -->
+<section>
+  <h2>add_values &mdash; doStepImpl()</h2>
+  <pre class="small-code"><code class="language-cpp" data-trim data-noescape>
+stackless_coroutine_handle&lt;void&gt; doStepImpl() {
+  switch (this-&gt;suspendIdx_) {
+    case 0: break;
+    case 1: goto label_1;
+    case 2: goto label_2;
+  }
+
+  CO_GET(initial_awaiter_).await_resume();
+  this-&gt;initial_awaiter_.destroy();
+
+  this-&gt;res_ = 0;
+  while (this-&gt;a_ &lt; this-&gt;b_) {
+    // size_t va = co_await compute_value(a_);
+    CO_INIT(task_storage_, (compute_value(this-&gt;a_)));
+    CO_AWAIT(1, awaiter_storage_, CO_GET(task_storage_), this-&gt;va_ =);
+    this-&gt;task_storage_.destroy();
+
+    // size_t vb = co_await compute_value(b_);
+    CO_INIT(task_storage_, (compute_value(this-&gt;b_)));
+    CO_AWAIT(2, awaiter_storage_, CO_GET(task_storage_), this-&gt;vb_ =);
+    this-&gt;task_storage_.destroy();
+
+    this-&gt;res_ += this-&gt;va_ + this-&gt;vb_;
+    ++this-&gt;a_;  --this-&gt;b_;
+  }
+
+  CO_RETURN_VALUE(3, final_awaiter_, (this-&gt;res_));
+}
+  </code></pre>
+</section>
+
+<!-- Slide 46: Symmetric transfer flow diagram -->
+<section>
+  <h2>Symmetric Transfer Flow</h2>
+  <pre style="font-size:0.7em; text-align:center">
+  caller
+    │
+    ▼ .start()
+┌──────────┐
+│add_values│──CO_AWAIT──▶ task_awaiter::await_suspend
+│  (a, b)  │             stores caller as continuation
+└──────────┘             returns compute_value's handle
+                              │
+                              ▼ trampoline resumes
+                        ┌──────────────┐
+                        │compute_value │
+                        │   (a)        │
+                        └──────────────┘
+                              │ co_return x*2
+                              ▼
+                        task_final_awaiter::await_suspend
+                        returns continuation (= add_values)
+                              │
+                              ▼ trampoline resumes
+                        ┌──────────┐
+                        │add_values│  ← resumes at label_1
+                        └──────────┘
+  </pre>
+  <p><strong>Flat trampoline, no stack growth.</strong></p>
+</section>
+
+<!-- Slide 47: Discussion -->
+<section>
+  <h2>Discussion</h2>
+  <h3>Symmetric transfer &mdash; questions?</h3>
+</section>
+
+<!-- ============================================================ -->
+<!-- SECTION 3d: Exception Handling (9 slides + discussion)        -->
+<!-- ============================================================ -->
+
+<!-- Slide 48: Section title -->
+<section>
+  <h1>Example (d)</h1>
+  <h3>Exception Handling</h3>
+  <p>"The hardest part"</p>
+</section>
+
+<!-- Slide 49: C++20 version -->
+<section>
+  <h2>throwing_parse_ints &mdash; C++20</h2>
+  <pre><code class="language-cpp" data-trim data-noescape>
+generator&lt;int&gt; throwing_parse_ints(
+    auto&amp;&amp; strings, bool catch_errors) {
+  for (const auto&amp; s : strings) {
+    try {
+      co_yield std::stoi(s);
+    } catch (const std::invalid_argument&amp;) {
+      if (!catch_errors) throw;
+      continue;
+    } catch (const std::out_of_range&amp;) {
+      if (!catch_errors) throw;
+      break;
+    }
+  }
+}
+  </code></pre>
+  <p><code>co_yield</code> inside a try-block, <code>continue</code> and <code>break</code> inside catch handlers.</p>
+</section>
+
+<!-- Slide 50: Three challenges -->
+<section>
+  <h2>Three Challenges</h2>
+  <ol>
+    <li><strong>Dispatch to the right catch</strong>
+      <ul><li>Which try-block was active when the exception was thrown?</li>
+          <li>Track with <code>currentTryBlock_</code> index</li></ul>
+    </li>
+    <li><strong>continue/break from catch</strong>
+      <ul><li>Can't suspend inside a catch handler (exception would be lost)</li>
+          <li>Must exit catch, set <code>suspendIdx_</code>, re-enter <code>doStepImpl()</code></li></ul>
+    </li>
+    <li><strong>Destroy constructed locals</strong>
+      <ul><li>Exception can occur at any point &mdash; which locals are alive?</li>
+          <li>Track with <code>__constructed</code> booleans</li></ul>
+    </li>
+  </ol>
+</section>
+
+<!-- Slide 51: Frame: __constructed tracking -->
+<section>
+  <h2>Frame &mdash; Construction Tracking</h2>
+  <pre><code class="language-cpp" data-trim data-noescape>
+struct CoroFrame
+    : stackless_coro_crtp&lt;CoroFrame, promise_type, false&gt; {
+                                                    // ^^^^^ isNoexcept=false
+  RangeOfStrings&amp;&amp; strings_;
+  bool catch_errors_;
+
+  using It  = decltype(std::begin(strings_));
+  using End = decltype(std::end(strings_));
+  coro_storage&lt;It&amp;, std::is_object_v&lt;It&gt;&gt;    it_;
+  coro_storage&lt;const End&amp;, std::is_object_v&lt;End&gt;&gt; end_;
+  coro_storage&lt;int&amp;, true&gt;                    parsed_;
+
+  // Track which locals have been constructed
+  struct {
+    bool initial_awaiter_ = true;
+    bool it_;
+    bool end_;
+    bool parsed_;
+  } __constructed;
+};
+  </code></pre>
+  <p><small><code>isNoexcept=false</code> enables the try/catch wrapper in <code>doStep()</code></small></p>
+</section>
+
+<!-- Slide 52: doStepImpl(): try block + labels -->
+<section>
+  <h2>doStepImpl() &mdash; Try Block + Labels</h2>
+  <pre class="small-code"><code class="language-cpp" data-trim data-noescape>
+stackless_coroutine_handle&lt;void&gt; doStepImpl() {
+  switch (this-&gt;suspendIdx_) {
+    case 0:  break;
+    case 1:  goto label_1;       // resume at co_yield
+    case 12: goto try_end;       // resume after caught exception
+    case 20: goto for_continue;  // continue from catch
+    case 21: goto for_break;     // break from catch
+  }
+
+  CO_GET(initial_awaiter_).await_resume();
+  DESTROY_UNCONDITIONALLY(initial_awaiter_);
+  CO_INIT_EX(it_,  (this-&gt;strings_.begin()));
+  CO_INIT_EX(end_, (this-&gt;strings_.end()));
+
+  for (; CO_GET(it_) != CO_GET(end_); ++CO_GET(it_)) {
+    this-&gt;currentTryBlock_ = 0;                      // enter try
+    CO_INIT_EX(parsed_, (std::stoi(*CO_GET(it_))));
+    CO_YIELD(1, initial_awaiter_, CO_GET(parsed_));
+    DESTROY_UNCONDITIONALLY(parsed_);
+    this-&gt;currentTryBlock_ = CoroFrameBase::CO_NO_TRY_BLOCK; // exit try
+  try_end:
+  for_continue:
+    ;
+  }
+for_break:
+  DESTROY_UNCONDITIONALLY(end_);
+  DESTROY_UNCONDITIONALLY(it_);
+  CO_RETURN_VOID(2, final_awaiter_);
+}
+  </code></pre>
+</section>
+
+<!-- Slide 53: dispatchExceptionHandling() -->
+<section>
+  <h2>dispatchExceptionHandling()</h2>
+  <pre><code class="language-cpp" data-trim data-noescape>
+ExceptionResult dispatchExceptionHandling() {
+  switch (this-&gt;currentTryBlock_) {
+    case CoroFrameBase::CO_NO_TRY_BLOCK: {
+      // Outside any try-block → unhandled
+      DESTROY_IF_CONSTRUCTED(end_);
+      DESTROY_IF_CONSTRUCTED(it_);
+      DESTROY_IF_CONSTRUCTED(initial_awaiter_);
+      return this-&gt;unhandled_exception();
+    }
+    case 0:
+      return handleCatchClause_0();
+    default:
+      __builtin_unreachable();
+  }
+}
+  </code></pre>
+  <ul>
+    <li>Called from the <code>catch(...)</code> in <code>doStep()</code></li>
+    <li>Routes to the right handler based on <code>currentTryBlock_</code></li>
+    <li>Outside any try-block: destroy what's alive, call <code>unhandled_exception()</code></li>
+  </ul>
+</section>
+
+<!-- Slide 54: handleCatchClause_0() -->
+<section>
+  <h2>handleCatchClause_0()</h2>
+  <pre class="small-code"><code class="language-cpp" data-trim data-noescape>
+ExceptionResult handleCatchClause_0() {
+  this-&gt;currentTryBlock_ = CoroFrameBase::CO_NO_TRY_BLOCK;
+  try {
+    DESTROY_IF_CONSTRUCTED(parsed_);
+    this-&gt;suspendIdx_ = 12;    // default: resume after try-catch
+    try {
+      throw;                    // rethrow to match catch clauses
+    } catch (const std::invalid_argument&amp;) {
+      if (!catch_errors_) throw;
+      this-&gt;suspendIdx_ = 20;  // continue → loop end
+    } catch (const std::out_of_range&amp;) {
+      if (!catch_errors_) throw;
+      this-&gt;suspendIdx_ = 21;  // break → after loop
+    }
+    return {};  // exception handled, resume with new suspendIdx_
+  } catch (...) {
+    // No catch matched, or rethrew → propagate up
+    return dispatchExceptionHandling();
+  }
+}
+  </code></pre>
+</section>
+
+<!-- Slide 55: Why rethrow? -->
+<section>
+  <h2>Why Rethrow?</h2>
+  <ul>
+    <li>A coroutine <strong>cannot suspend inside a catch handler</strong>
+      <ul><li>The exception object would be destroyed on stack unwind</li></ul>
+    </li>
+    <li>Solution: catch clause sets <code>suspendIdx_</code> and <strong>returns</strong></li>
+    <li><code>doStep()</code> sees the exception was handled, calls <code>doStep()</code> again</li>
+    <li><code>doStepImpl()</code> resumes at the new <code>suspendIdx_</code> &mdash; outside any catch</li>
+  </ul>
+  <pre><code class="language-cpp" data-trim data-noescape>
+// In doStep():
+catch (...) {
+  auto [handle, frame_destroyed] = d.handleException();
+  if (!d.done()) {
+    return d.doStep();  // re-enter with new suspendIdx_
+  }
+}
+  </code></pre>
+</section>
+
+<!-- Slide 56: Exception-safe cleanup -->
+<section>
+  <h2>Exception-Safe Cleanup</h2>
+  <div class="two-column">
+    <div>
+      <h4>At suspension points</h4>
+      <pre><code class="language-cpp" data-trim data-noescape>
+// destroySuspendedCoro:
+// Exact knowledge of
+// what's alive
+case 1:
+  initial_awaiter_.destroy();
+  parsed_.destroy();
+  it_.destroy();
+  end_.destroy();
+  return;
+      </code></pre>
+    </div>
+    <div>
+      <h4>During exceptions</h4>
+      <pre><code class="language-cpp" data-trim data-noescape>
+// dispatchExceptionHandling:
+// Must check each local
+DESTROY_IF_CONSTRUCTED(end_);
+DESTROY_IF_CONSTRUCTED(it_);
+DESTROY_IF_CONSTRUCTED(
+    initial_awaiter_);
+      </code></pre>
+    </div>
+  </div>
+  <p style="margin-top:0.5em">At suspension points we know exactly what's alive. During exceptions we don't &mdash; hence <code>DESTROY_IF_CONSTRUCTED</code> with the tracking booleans.</p>
+</section>
+
+<!-- Slide 57: Discussion -->
+<section>
+  <h2>Discussion</h2>
+  <h3>Exception handling &mdash; questions?</h3>
+</section>
+
+<!-- ============================================================ -->
+<!-- SECTION 4: Stackful Alternative (7 slides + discussion)       -->
+<!-- ============================================================ -->
+
+<!-- Slide 58: Section title -->
+<section>
+  <h1>Stackful Alternative</h1>
+  <h3>No Heap, No Indirection</h3>
+</section>
+
+<!-- Slide 59: Problem with stackless -->
+<section>
+  <h2>The Problem with Stackless</h2>
+  <ul>
+    <li><strong>Heap allocation</strong> per coroutine frame
+      <ul><li>HALO (Heap Allocation Elision Optimization) helps, but isn't guaranteed</li></ul>
+    </li>
+    <li><strong>Function pointer indirection</strong> through <code>HandleFrame</code>
+      <ul><li><code>resumeFunc</code> / <code>destroyFunc</code> are opaque to the optimizer</li></ul>
+    </li>
+    <li>The compiler can't inline through type-erased calls</li>
+    <li>For tight loops, this overhead matters</li>
+  </ul>
+  <p style="margin-top:1em"><strong>Can we do better when the coroutine type is known at the call site?</strong></p>
+</section>
+
+<!-- Slide 60: stackful_coroutine_handle -->
+<section>
+  <h2>stackful_coroutine_handle</h2>
+  <pre><code class="language-cpp" data-trim data-noescape>
+template &lt;typename CoroFrame&gt;
+struct stackful_coroutine_handle {
+  CoroFrame frame;  // stored BY VALUE — no heap!
+
+  explicit stackful_coroutine_handle(CoroFrame&amp;&amp; f) noexcept
+      : frame(std::move(f)) {}
+
+  // Direct calls — no function pointer indirection
+  void resume() { frame.doStep(); }
+  void destroy() { frame.destroy(); }
+  bool done() const { return frame.done(); }
+  auto&amp; promise() { return frame.promise(); }
+};
+  </code></pre>
+  <ul>
+    <li>Frame stored by value &rarr; stack or inline in the caller</li>
+    <li>Direct member calls &rarr; fully inlineable</li>
+    <li>No <code>HandleFrame</code>, no vtable</li>
+  </ul>
+</section>
+
+<!-- Slide 61: stackful_coro_crtp -->
+<section>
+  <h2>stackful_coro_crtp</h2>
+  <ul>
+    <li>No <code>HandleFrame</code> needed &mdash; calls are direct, not through function pointers</li>
+    <li><code>ramp()</code> returns the frame by value (no heap allocation)</li>
+    <li>No symmetric transfer (stack is already flat)</li>
+    <li>Same <code>doStepImpl()</code> and <code>destroySuspendedCoro()</code> interface</li>
+  </ul>
+  <pre><code class="language-cpp" data-trim data-noescape>
+template &lt;typename Derived, typename PromiseType, bool isNoexcept&gt;
+struct stackful_coro_crtp {
+  PromiseType promise_;   // no HandleFrame!
+  size_t suspendIdx_ = 0;
+
+  // ramp returns by value
+  template &lt;typename... Args&gt;
+  static Derived ramp(Args&amp;&amp;... args) {
+    Derived frame{std::forward&lt;Args&gt;(args)...};
+    // initial_suspend + get_return_object handled by caller
+    return frame;
+  }
+};
+  </code></pre>
+</section>
+
+<!-- Slide 62: Unified generator policy -->
+<section>
+  <h2>Unified Generator Policy</h2>
+  <pre><code class="language-cpp" data-trim data-noescape>
+// Same generator template, different policies:
+
+template &lt;typename T&gt;
+struct HeapGeneratorPolicy {
+  using handle_type = stackless_coroutine_handle&lt;promise_type&gt;;
+  static constexpr bool nullable = true;
+};
+
+template &lt;typename T, typename CoroFrame&gt;
+struct InlineGeneratorPolicy {
+  using handle_type = stackful_coroutine_handle&lt;CoroFrame&gt;;
+  static constexpr bool nullable = false;
+};
+
+// Aliases:
+template &lt;typename T&gt;
+using heap_generator = unified_generator&lt;T, HeapGeneratorPolicy&lt;T&gt;&gt;;
+
+template &lt;typename T, typename CoroFrame&gt;
+using inline_gen = unified_generator&lt;T, InlineGeneratorPolicy&lt;T, CoroFrame&gt;&gt;;
+  </code></pre>
+</section>
+
+<!-- Slide 63: iota: same frame, two policies -->
+<section>
+  <h2>iota &mdash; Same Frame, Two Policies</h2>
+  <pre><code class="language-cpp" data-trim data-noescape>
+template &lt;bool stackless = true&gt;
+auto iota_unified(int start, int end) {
+  using promise_type = std::conditional_t&lt;stackless,
+      heap_generator&lt;int&gt;::promise_type,
+      detail::unified_generator_promise&lt;int&gt;&gt;;
+
+  struct CoroFrame
+      : FrameCRTP&lt;stackless, CoroFrame, promise_type, true&gt; {
+    // ... same doStepImpl, same destroySuspendedCoro ...
+  };
+
+  if constexpr (stackless) {
+    return CoroFrame::ramp(start, end);     // heap_generator
+  } else {
+    return inline_gen&lt;int, CoroFrame&gt;{
+        stackful_coroutine_handle&lt;CoroFrame&gt;{
+            CoroFrame::ramp(start, end)}};  // inline_gen
+  }
+}
+  </code></pre>
+  <p><strong>Same coroutine body. Different allocation strategy.</strong></p>
+</section>
+
+<!-- Slide 64: Assembly comparison -->
+<section>
+  <h2>Assembly Comparison</h2>
+  <div class="two-column">
+    <div>
+      <h4>Heap (stackless)</h4>
+      <ul>
+        <li><code>operator new</code> for frame</li>
+        <li>Indirect call through <code>resumeFunc</code></li>
+        <li>Optimizer cannot see through type erasure</li>
+      </ul>
+    </div>
+    <div>
+      <h4>Inline (stackful)</h4>
+      <ul>
+        <li>Frame on stack</li>
+        <li>Direct call to <code>doStep()</code></li>
+        <li>Compiler can inline everything</li>
+        <li>Matches hand-written loop in assembly</li>
+      </ul>
+    </div>
+  </div>
+  <p style="margin-top:1em">With the inline policy, <code>iota_unified&lt;false&gt;(0, n)</code> compiles to the same assembly as a hand-written <code>for</code> loop.</p>
+</section>
+
+<!-- Slide 65: Discussion -->
+<section>
+  <h2>Discussion</h2>
+  <h3>Stackful vs stackless tradeoffs?</h3>
+  <div class="two-column">
+    <div>
+      <h4>Stackless (heap)</h4>
+      <ul>
+        <li>Type erasure &rarr; polymorphism</li>
+        <li>Symmetric transfer</li>
+        <li>Heap allocation</li>
+      </ul>
+    </div>
+    <div>
+      <h4>Stackful (inline)</h4>
+      <ul>
+        <li>Zero overhead &rarr; full inlining</li>
+        <li>No symmetric transfer</li>
+        <li>Type must be known at call site</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- SECTION 5: Rewriter Stub (2 slides)                           -->
+<!-- ============================================================ -->
+
+<!-- Slide 66: LibTooling rewriter -->
+<section>
+  <h2>LibTooling Rewriter</h2>
+  <ul>
+    <li>The transformation is <strong>mechanical</strong> &mdash; it can be automated</li>
+    <li>Clang LibTooling: parse C++20 coroutine &rarr; emit C++17 frame</li>
+    <li>Handles: state machine generation, local variable hoisting, cleanup tables</li>
+  </ul>
+  <h4 style="margin-top:1em">Limitations</h4>
+  <ul>
+    <li>Nested <code>co_await</code> in expressions (evaluation order)</li>
+    <li>One lifetime edge case with reference temporaries</li>
+    <li>Complex control flow (e.g., switch with fallthrough + co_yield)</li>
+  </ul>
+  <p><small>Work in progress &mdash; stay tuned!</small></p>
+</section>
+
+<!-- Slide 67: Why rewrite language features? -->
+<section>
+  <h2>Why Rewrite Language Features?</h2>
+  <ul>
+    <li><strong>C++17 portability</strong> &mdash; use coroutine patterns where C++20 isn't available</li>
+    <li><strong>Custom infrastructure</strong> &mdash; swap out heap for inline, add instrumentation</li>
+    <li><strong>Separation of concerns</strong> &mdash; the coroutine body is <em>what</em>, the infrastructure is <em>how</em></li>
+    <li><strong>Understanding</strong> &mdash; seeing the lowered form makes the protocol concrete</li>
+  </ul>
+</section>
+
+<!-- ============================================================ -->
+<!-- SECTION 6: Conclusion (3 slides)                              -->
+<!-- ============================================================ -->
+
+<!-- Slide 68: What we covered -->
+<section>
+  <h2>What We Covered</h2>
+  <ul>
+    <li><strong>Infrastructure</strong>: HandleFrame, coroutine_handle, CRTP base, coro_storage, macros</li>
+    <li><strong>4 Examples</strong>:
+      <ul>
+        <li>(a) Minimal generator &mdash; basic state machine</li>
+        <li>(b) Local variables &mdash; coro_storage lifetime management</li>
+        <li>(c) Task &mdash; symmetric transfer via trampoline</li>
+        <li>(d) Exceptions &mdash; try-block dispatch, catch-clause rewriting</li>
+      </ul>
+    </li>
+    <li><strong>Stackful alternative</strong>: zero-overhead inline coroutines</li>
+  </ul>
+  <p>Subtleties: frame layout, local lifetimes, exception dispatch, symmetric transfer</p>
+</section>
+
+<!-- Slide 69: Key takeaways -->
+<section>
+  <h2>Key Takeaways</h2>
+  <ol>
+    <li><strong>Promise + Awaitable = stable API</strong>
+      <ul><li>The protocol is the contract between coroutine and caller</li></ul>
+    </li>
+    <li><strong>Body transformation = implementation detail</strong>
+      <ul><li>The state machine is mechanical; the compiler just does it for you</li></ul>
+    </li>
+    <li><strong>Understanding lowering helps debug</strong>
+      <ul><li>Suspend points, frame layout, exception dispatch &mdash; no more mystery</li></ul>
+    </li>
+  </ol>
+</section>
+
+<!-- Slide 70: Thank you -->
+<section>
+  <h1>Thank You!</h1>
+  <h3>Questions?</h3>
+  <p>Johannes Kalmbach</p>
+  <p><small>Slides &amp; code on GitHub</small></p>
+</section>
 
       </div>
     </div>
