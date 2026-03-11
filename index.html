@@ -498,7 +498,8 @@ generator&lt;int&gt; iota(int start, int end) {
   }
 }
   </code></pre>
-  <p>The simplest possible generator. One suspension point inside the loop.</p>
+  <p>The simplest POSSible generator. One suspension point inside the loop. No
+  stack variables.</p>
 </section>
 
 <!-- Slide 22: Frame layout -->
@@ -506,13 +507,9 @@ generator&lt;int&gt; iota(int start, int end) {
   <h2>iota &mdash; Frame Layout</h2>
   <pre><code class="language-cpp" data-trim data-noescape>
 auto iota_unified(int start, int end) {
-  using promise_type = heap_generator&lt;int&gt;::promise_type;
+  using promise_type = generator&lt;int&gt;::promise_type;
 
-  struct CoroFrame
-      : stackless_coro_crtp&lt;CoroFrame, promise_type, true&gt; {
-    using CoroFrameBase =
-        stackless_coro_crtp&lt;CoroFrame, promise_type, true&gt;;
-
+  struct CoroFrame : coro_crtp&lt;CoroFrame, promise_type&gt; {
     int start_;    // parameter → stored in frame
     int end_;      // parameter → stored in frame
 
@@ -521,82 +518,54 @@ auto iota_unified(int start, int end) {
     // ... doStepImpl, destroySuspendedCoro ...
   };
 
-  return CoroFrame::ramp(start, end);
+  return generator&lt;int&gt;(CoroFrame::ramp(start, end));
 }
   </code></pre>
-  <p><small>Parameters become frame members. No local variables &rarr; no <code>coro_storage</code> needed.</small></p>
+  <p><small>Parameters become frame members.</small></p>
 </section>
 
 <!-- Slide 23: doStepImpl() expanded -->
 <section>
-  <h2>iota &mdash; doStepImpl() (expanded)</h2>
+  <h2>iota &mdash; doStepImpl() </h2>
   <pre><code class="language-cpp" data-trim data-noescape>
-stackless_coroutine_handle&lt;void&gt; doStepImpl() {
+coroutine_handle&lt;void&gt; doStepImpl() {
   // Jump table: resume at the right suspension point
-  switch (this-&gt;suspendIdx_) {
+  switch (suspendIdx_) {
     case 0: break;          // first entry (after initial_suspend)
     case 1: goto label_1;   // resume after co_yield
   }
 
   // After initial_suspend:
   CO_GET(initial_awaiter_).await_resume();
-  this-&gt;initial_awaiter_.destroy();
+  initial_awaiter_.destroy();
 
-  while (this-&gt;start_ &lt; this-&gt;end_) {
-    // co_yield start_:
-    // 1. promise.yield_value(start_) → construct awaiter
-    // 2. suspendIdx_ = 1
-    // 3. await the awaiter (return to caller)
-    CO_YIELD(1, initial_awaiter_, (this-&gt;start_));
-    // label_1: ← resume here after caller calls .resume()
-    ++this-&gt;start_;
+  while (start_ &lt; end_) {
+    CO_YIELD(1, initial_awaiter_, (start_));
+    ++start_;
   }
 
-  // co_return (implicit void)
+  // implicit co_return 
   CO_RETURN_VOID(2, final_awaiter_);
 }
   </code></pre>
-</section>
-
-<!-- Slide 24: doStepImpl() with macros -->
-<section>
-  <h2>iota &mdash; doStepImpl() (macro version)</h2>
-  <pre><code class="language-cpp" data-trim data-noescape>
-stackless_coroutine_handle&lt;void&gt; doStepImpl() {
-  switch (this-&gt;suspendIdx_) {
-    case 0: break;
-    case 1: goto label_1;
-  }
-
-  CO_GET(initial_awaiter_).await_resume();
-  this-&gt;initial_awaiter_.destroy();
-
-  while (this-&gt;start_ &lt; this-&gt;end_) {
-    CO_YIELD(1, initial_awaiter_, (this-&gt;start_));
-    ++this-&gt;start_;
-  }
-  CO_RETURN_VOID(2, final_awaiter_);
-}
-  </code></pre>
-  <p>Once you know the pattern, the macro version is almost as readable as the C++20 original.</p>
 </section>
 
 <!-- Slide 25: destroySuspendedCoro() -->
 <section>
   <h2>iota &mdash; destroySuspendedCoro()</h2>
   <pre><code class="language-cpp" data-trim data-noescape>
-void destroySuspendedCoro(size_t suspendIdx_) {
+void destroySuspendedCoro() {
   switch (suspendIdx_) {
     case 0:
       // Suspended at initial_suspend
-      this-&gt;initial_awaiter_.destroy();
+      initial_awaiter_.destroy();
       return;
     case 1:
       // Suspended at co_yield (mid-loop)
-      this-&gt;initial_awaiter_.destroy();
-      // fallthrough — no locals to destroy
+      initial_awaiter_.destroy();
+      return;
     case 2:
-      // At co_return — nothing left
+      // At co_return — no local variables to destroy
       return;
   }
 }
@@ -676,14 +645,16 @@ for (int v : iota_unified(0, 5)) {
   <h2>string_prepend &mdash; C++20</h2>
   <pre><code class="language-cpp" data-trim data-noescape>
 generator&lt;std::string&gt; string_prepend(
-    auto&amp;&amp; rangeOfStrings, std::string prefix) {
-  for (const auto&amp; s : rangeOfStrings) {
-    co_yield (prefix + s);
+        auto&amp;&amp; rangeOfStrings, std::string prefix) {
+  auto it = rangeOfStrings.begin();
+  auto end = rangeOfStrings.end();
+  for (; it != end; ++it) {
+    co_yield (prefix + *it);
   }
 }
   </code></pre>
   <ul>
-    <li>Range-for loop &rarr; iterator variables live across suspension</li>
+    <li>Iterator variables live across suspension points</li>
     <li><code>prefix + s</code> creates a temporary that must survive the yield</li>
     <li>These locals need explicit lifetime management in the frame</li>
   </ul>
@@ -694,27 +665,24 @@ generator&lt;std::string&gt; string_prepend(
   <h2>string_prepend &mdash; Frame Layout</h2>
   <pre><code class="language-cpp" data-trim data-noescape>
 struct CoroFrame
-    : stackless_coro_crtp&lt;CoroFrame, promise_type, true&gt; {
+    : coro_crtp&lt;CoroFrame, promise_type&gt; {
   RangeOfStrings&amp;&amp; rangeOfStrings_;
   std::string prefix_;
 
   // Local variables stored as coro_storage:
-  using It  = decltype(std::begin(rangeOfStrings_));
-  using End = decltype(std::end(rangeOfStrings_));
+  using It  = std::remove_cvref_t&lt;decltype(rangeOfStrings_.begin())&gt;;
+  using End = std::remove_cvref_t&lt;decltype(rangeOfStrings_.end()));&gt;;
 
-  coro_storage&lt;It&amp;, std::is_object_v&lt;It&gt;&gt;    it_;    // iterator
-  coro_storage&lt;const End&amp;, std::is_object_v&lt;End&gt;&gt; end_; // sentinel
-  coro_storage&lt;std::string&amp;&amp;, true&gt;           tmp_;   // yield temp
+  coro_storage&lt;It&amp;, true&gt; it_;    // iterator
+  coro_storage&lt;const End&amp;, true&gt; end_; // sentinel
+  coro_storage&lt;std::string&amp;&amp;, true&gt; tmp_;   // yield temp
 
   CoroFrame(RangeOfStrings&amp;&amp; ros, std::string pref)
       : rangeOfStrings_(std::forward&lt;RangeOfStrings&gt;(ros)),
         prefix_(std::move(pref)) {}
 };
   </code></pre>
-  <ul>
-    <li><code>it_</code>, <code>end_</code>: owning if object type, pointer if reference</li>
-    <li><code>tmp_</code>: owning &mdash; the temporary <code>std::string</code> from <code>prefix + s</code></li>
-  </ul>
+  <p><small> What does the type of `tmp_` depend on?</small></p>
 </section>
 
 <!-- Slide 32: doStepImpl() -->
@@ -722,54 +690,50 @@ struct CoroFrame
   <h2>string_prepend &mdash; doStepImpl()</h2>
   <pre><code class="language-cpp" data-trim data-noescape>
 stackless_coroutine_handle&lt;void&gt; doStepImpl() {
-  switch (this-&gt;suspendIdx_) {
+  switch (suspendIdx_) {
     case 0: break;
     case 1: goto label_1;
   }
 
   CO_GET(initial_awaiter_).await_resume();
-  this-&gt;initial_awaiter_.destroy();
+  initial_awaiter_.destroy();
 
-  CO_INIT(it_,  (this-&gt;rangeOfStrings_.begin()));
-  CO_INIT(end_, (this-&gt;rangeOfStrings_.end()));
+  CO_INIT(it_,  (rangeOfStrings_.begin()));
+  CO_INIT(end_, (rangeOfStrings_.end()));
 
   for (; CO_GET(it_) != CO_GET(end_); ++CO_GET(it_)) {
-    CO_INIT(tmp_, (this-&gt;prefix_ + *CO_GET(it_)));  // construct temp
+    CO_INIT(tmp_, (prefix_ + *CO_GET(it_)));  // construct temp
     CO_YIELD(1, initial_awaiter_, CO_GET(tmp_));
-    this-&gt;tmp_.destroy();                            // destroy after resume
+    tmp_.destroy();                            // destroy after resume
   }
 
   CO_RETURN_VOID(2, final_awaiter_);
 }
   </code></pre>
-  <p><small><code>CO_INIT</code> = placement new &bull; <code>CO_GET</code> = access via proxy &bull; explicit <code>destroy()</code> for temporaries</small></p>
+
 </section>
 
 <!-- Slide 33: destroySuspendedCoro() -->
 <section>
   <h2>string_prepend &mdash; destroySuspendedCoro()</h2>
   <pre><code class="language-cpp" data-trim data-noescape>
-void destroySuspendedCoro(size_t suspendIdx_) {
+void destroySuspendedCoro() {
   switch (suspendIdx_) {
     case 0:
       // At initial_suspend — only awaiter alive
-      this-&gt;initial_awaiter_.destroy();
+      initial_awaiter_.destroy();
       return;
     case 1:
       // Mid-loop, at co_yield — tmp_ is alive!
-      this-&gt;initial_awaiter_.destroy();
-      tmp_.destroy();      // ← the temporary string
-      // fallthrough
-    case 2:
+      initial_awaiter_.destroy();
+      tmp_.destroy(); 
+    case 2: [[fallthrough]]
+      end_.destroy();
+      it_.destroy();
       return;
   }
 }
-  </code></pre>
-  <ul>
-    <li>At suspension point 1: <code>tmp_</code> has been constructed but not yet destroyed</li>
-    <li>At suspension point 0 or 2: <code>tmp_</code> doesn't exist</li>
-    <li>This is exactly what the compiler tracks internally</li>
-  </ul>
+  </Code></pre>
 </section>
 
 <!-- Slide 34: Key takeaway -->
@@ -1014,10 +978,10 @@ struct CoroFrame
   size_t res_, va_, vb_;
 
   // The inner task and its awaiter need to live across suspension
-  coro_storage&lt;task&lt;size_t, stackless_coroutine_handle&gt;&amp;, true&gt;
+  coro_storage&lt;task&lt;size_t&gt;&amp;, true&gt;
       task_storage_;
   coro_storage&lt;detail::task_awaiter&lt;
-      size_t, stackless_coroutine_handle&gt;&amp;, true&gt;
+      size_t;&amp;, true&gT;
       awaiter_storage_;
 
   CoroFrame(size_t a, size_t b) : a_(a), b_(b) {}
@@ -1033,7 +997,7 @@ struct CoroFrame
 <section>
   <h2>add_values &mdash; doStepImpl()</h2>
   <pre class="small-code"><code class="language-cpp" data-trim data-noescape>
-stackless_coroutine_handle&lt;void&gt; doStepImpl() {
+coroutine_handle&lt;void&gt; doStepImpl() {
   switch (this-&gt;suspendIdx_) {
     case 0: break;
     case 1: goto label_1;
@@ -1041,25 +1005,25 @@ stackless_coroutine_handle&lt;void&gt; doStepImpl() {
   }
 
   CO_GET(initial_awaiter_).await_resume();
-  this-&gt;initial_awaiter_.destroy();
+  initial_awaiter_.destroy();
 
-  this-&gt;res_ = 0;
-  while (this-&gt;a_ &lt; this-&gt;b_) {
+  res_ = 0;
+  while (a_ &lt; b_) {
     // size_t va = co_await compute_value(a_);
-    CO_INIT(task_storage_, (compute_value(this-&gt;a_)));
-    CO_AWAIT(1, awaiter_storage_, CO_GET(task_storage_), this-&gt;va_ =);
-    this-&gt;task_storage_.destroy();
+    CO_INIT(task_storage_, (compute_value(a_)));
+    CO_AWAIT(1, awaiter_storage_, CO_GET(task_storage_), va_ =);
+    task_storage_.destroy();
 
     // size_t vb = co_await compute_value(b_);
-    CO_INIT(task_storage_, (compute_value(this-&gt;b_)));
-    CO_AWAIT(2, awaiter_storage_, CO_GET(task_storage_), this-&gt;vb_ =);
-    this-&gt;task_storage_.destroy();
+    CO_INIT(task_storage_, (compute_value(b_)));
+    CO_AWAIT(2, awaiter_storage_, CO_GET(task_storage_), vb_ =);
+    task_storage_.destroy();
 
-    this-&gt;res_ += this-&gt;va_ + this-&gt;vb_;
-    ++this-&gt;a_;  --this-&gt;b_;
+    res_ += va_ + vb_;
+    ++a_;  --b_;
   }
 
-  CO_RETURN_VALUE(3, final_awaiter_, (this-&gt;res_));
+  co_RETURN_VALUE(3, final_awaiter_, res_);
 }
   </code></pre>
 </section>
@@ -1135,19 +1099,19 @@ generator&lt;int&gt; throwing_parse_ints(
 
 <!-- Slide 50: Three challenges -->
 <section>
-  <h2>Three Challenges</h2>
+  <h2>Two Challenges</h2>
   <ol>
-    <li><strong>Dispatch to the right catch</strong>
-      <ul><li>Which try-block was active when the exception was thrown?</li>
-          <li>Track with <code>currentTryBlock_</code> index</li></ul>
+    <li><strong>Resuming into a try block</strong>
+      <ul><li>goto may not jump into a try block</li>
+	  <li>Not even with asm goto on Itanium ABI</li>
+          <li>Solution: subdispatch in every try-block that contains suspension
+	  points</li></ul>
     </li>
-    <li><strong>continue/break from catch</strong>
-      <ul><li>Can't suspend inside a catch handler (exception would be lost)</li>
-          <li>Must exit catch, set <code>suspendIdx_</code>, re-enter <code>doStepImpl()</code></li></ul>
-    </li>
-    <li><strong>Destroy constructed locals</strong>
+    <li><strong>Stack Unwinding</strong>
       <ul><li>Exception can occur at any point &mdash; which locals are alive?</li>
-          <li>Track with <code>__constructed</code> booleans</li></ul>
+          <li>Solution: At runtime keep track of all the in-scope locals</li>
+	  <li> Unfortunately, not zero overhead </li>
+      </ul>
     </li>
   </ol>
 </section>
@@ -1156,28 +1120,27 @@ generator&lt;int&gt; throwing_parse_ints(
 <section>
   <h2>Frame &mdash; Construction Tracking</h2>
   <pre><code class="language-cpp" data-trim data-noescape>
-struct CoroFrame
-    : stackless_coro_crtp&lt;CoroFrame, promise_type, false&gt; {
-                                                    // ^^^^^ isNoexcept=false
+struct CoroFrame: coro_crtp&lt;CoroFrame, promise_type&gt; {
   RangeOfStrings&amp;&amp; strings_;
   bool catch_errors_;
 
-  using It  = decltype(std::begin(strings_));
-  using End = decltype(std::end(strings_));
-  coro_storage&lt;It&amp;, std::is_object_v&lt;It&gt;&gt;    it_;
-  coro_storage&lt;const End&amp;, std::is_object_v&lt;End&gt;&gt; end_;
+  using It  = std::remove_cvref_t&lt;decltype(rangeOfStrings_.begin())&gt;;
+  using End = std::remove_cvref_t&lt;decltype(rangeOfStrings_.end()));&gt;;
+
+  coro_storage&lt;It&amp;, true&gt; it_;    // iterator
+  coro_storage&lt;const End&amp;, true&gt; end_; // sentinel
   coro_storage&lt;int&amp;, true&gt;                    parsed_;
 
   // Track which locals have been constructed
   struct {
-    bool initial_awaiter_ = true;
-    bool it_;
-    bool end_;
-    bool parsed_;
-  } __constructed;
+    bool initial_awaiter_ = false;
+    bool it_ = false;
+    bool end_ = false;
+    bool parsed_ = false;
+  } __constructed ;
 };
   </code></pre>
-  <p><small><code>isNoexcept=false</code> enables the try/catch wrapper in <code>doStep()</code></small></p>
+  <p><small>Note: We coulD OMIt the tracking for trivially destructible types</small></p>
 </section>
 
 <!-- Slide 52: doStepImpl(): try block + labels -->

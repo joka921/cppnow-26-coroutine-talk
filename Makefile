@@ -1,7 +1,7 @@
 .PHONY: serve stop install clean pdf export open help
 
 # Default port for the local server
-PORT ?= 8000
+PORT ?= 9628
 
 # Default target
 help:
