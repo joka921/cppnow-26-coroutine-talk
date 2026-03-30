@@ -1316,18 +1316,8 @@ DESTROY_IF_CONSTRUCTED(
 <section>
   <h2>The Problem with Stackless</h2>
   <ul>
-    <li class="fragment"><strong>Heap allocation</strong> per coroutine frame
-      <ul><li>HALO helpful, but unreliable</li></ul>
-    </li>
-    <li class="fragment">Type erasure + function pointer indirection hinder optimizations
-    </li>
-    <li class="fragment">Unacceptable overhead for tight loops. </li>
-  </ul>
-  <p class="fragment" style="margin-top:1em"><strong>Can we do better when the coroutine type is known at the call site?</strong></p>
-
-  <aside class="notes">
-    Before diving into alternative designs, let's quickly recap the
-    characterstics of the stackless C++20 coroutines. [B] As the coroutine frames
+    <li class="fragment"
+      data-notes="As the coroutine frames
     are allocated on the heap by default, each invocation of a coroutine 
     has to pay the price of a heap allocation. Custom allocators are
     supported, but need to be managed explicitly. HALO (meaning heap allocation
@@ -1336,19 +1326,35 @@ DESTROY_IF_CONSTRUCTED(
     fails (The standard doesn't mandate HALO, older versions of clang used to
     elide simple generators, newer versions don't, clang has custom attributes
     to enforce HALO, but those only work for task-like async coroutines that
-    co_await each other).
-    [B] Additionally, coroutines are type-erased, meaning that for example every
+    co_await each other).">
+<strong>Heap allocation</strong> per coroutine frame
+      <ul><li>HALO helpful, but unreliable</li></ul>
+    </li>
+    <li class="fragment"
+      data-notes="Additionally, coroutines are type-erased, meaning that for example every
     generator that yields ints has the type generator of int, independent of its
     concrete body. Because of this, all access to the coroutine has to go
-    through opaque function pointers which greatly limits the optimizer.
-    [B]In practice, yielding a single int from a generator costs roughly as much as
+    through opaque function pointers which greatly limits the optimizer."
+      >
+      Type erasure + function pointer indirection hinder optimizations
+    </li>
+    <li class="fragment"
+      data-notes="In practice, yielding a single int from a generator costs roughly as much as
     a function call into a different translation unit, even if the generator
     body is completely visible to the compiler. While this design has many
     advantages for task-style asynchronous coroutines, it currently hinders the
     usage of generators as a convenient way to implement tight-loop input
-    ranges. [B] Our stackful design will aim (and achieve!) to lift those
-    limitations.
-  </aside>
+    ranges.">
+      Unacceptable overhead for tight loops. </li>
+  </ul>
+  <p class="fragment" style="margin-top:1em"
+  data-notes="Our stackful design will aim (and achieve!) to lift those
+    limitations."
+  ><strong>Can we do better when the coroutine type is known at the call site?</strong></p>
+
+  <aside class="notes">
+    Before diving into alternative designs, let's quickly recap the
+    characterstics of the stackless C++20 coroutines.       </aside>
 </section>
 
 <!-- Slide 60: stackful_coroutine_handle -->
@@ -1641,6 +1647,38 @@ auto iota_unified(int start, int end) {
           RevealSearch
         ]
       });
+
+      // Store the original notes per slide so we can restore them
+Reveal.on('fragmentshown', event => {
+  const fragment = event.fragment;
+  const notes = fragment.dataset.notes;
+  if (notes) {
+    const slide = fragment.closest('section');
+    // Save original notes if not already saved
+    if (!slide.dataset.originalNotes) {
+      const aside = slide.querySelector('aside.notes');
+      slide.dataset.originalNotes = aside ? aside.innerHTML : '';
+    }
+    slide.querySelector('aside.notes').innerHTML = notes.replace(/\n+/g, ' ');
+  }
+});
+
+Reveal.on('fragmenthidden', event => {
+  const fragment = event.fragment;
+  const slide = fragment.closest('section');
+
+  // Check if any visible fragment still has notes
+  const visibleFragmentWithNotes = [...slide.querySelectorAll('.fragment.visible')]
+    .reverse()
+    .find(f => f.dataset.notes);
+
+  if (visibleFragmentWithNotes) {
+    slide.querySelector('aside.notes').innerHTML = visibleFragmentWithNotes.dataset.notes;
+  } else if (slide.dataset.originalNotes !== undefined) {
+    // Restore original slide notes
+    slide.querySelector('aside.notes').innerHTML = slide.dataset.originalNotes;
+  }
+});
     </script>
   </body>
 </html>
