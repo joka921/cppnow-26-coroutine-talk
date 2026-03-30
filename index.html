@@ -9,6 +9,7 @@
     <link rel="stylesheet" href="node_modules/reveal.js/dist/theme/black.css" id="theme">
     <link rel="stylesheet" href="node_modules/reveal.js/plugin/highlight/monokai.css">
     <link rel="stylesheet" href="css/custom.css">
+    <script src="dist/plugin/notes.js"></script>
   </head>
   <body>
     <div class="reveal">
@@ -1300,22 +1301,54 @@ DESTROY_IF_CONSTRUCTED(
 <section>
   <h1>Stackful Alternative</h1>
   <h3>No Heap, No Indirection</h3>
+  <aside class="notes">
+    Until now, we have manually implemented coroutines with the exact semantics
+    specified by C++20 (minus some inaccuracies and bugs introduced by myself of course).
+    But since we have done everything ourselves, we also can explore different
+    design choices, in particular stackful, strongly typed
+    coroutines. Gladly, we can keep our tediously rewritten coroutine frame
+    state machines, and only have to adapt the generic infrastructure like
+    coroutine handles.
+  </aside>
 </section>
 
 <!-- Slide 59: Problem with stackless -->
 <section>
   <h2>The Problem with Stackless</h2>
   <ul>
-    <li><strong>Heap allocation</strong> per coroutine frame
-      <ul><li>HALO (Heap Allocation Elision Optimization) helps, but isn't guaranteed</li></ul>
+    <li class="fragment"><strong>Heap allocation</strong> per coroutine frame
+      <ul><li>HALO helpful, but unreliable</li></ul>
     </li>
-    <li><strong>Function pointer indirection</strong> through <code>HandleFrame</code>
-      <ul><li><code>resumeFunc</code> / <code>destroyFunc</code> are opaque to the optimizer</li></ul>
+    <li class="fragment">Type erasure + function pointer indirection hinder optimizations
     </li>
-    <li>The compiler can't inline through type-erased calls</li>
-    <li>For tight loops, this overhead matters</li>
+    <li class="fragment">Unacceptable overhead for tight loops. </li>
   </ul>
-  <p style="margin-top:1em"><strong>Can we do better when the coroutine type is known at the call site?</strong></p>
+  <p class="fragment" style="margin-top:1em"><strong>Can we do better when the coroutine type is known at the call site?</strong></p>
+
+  <aside class="notes">
+    Before diving into alternative designs, let's quickly recap the
+    characterstics of the stackless C++20 coroutines. [B] As the coroutine frames
+    are allocated on the heap by default, each invocation of a coroutine 
+    has to pay the price of a heap allocation. Custom allocators are
+    supported, but need to be managed explicitly. HALO (meaning heap allocation
+    elision optimization) is allowed and in theory often possible, but in
+    practice regularly 
+    fails (The standard doesn't mandate HALO, older versions of clang used to
+    elide simple generators, newer versions don't, clang has custom attributes
+    to enforce HALO, but those only work for task-like async coroutines that
+    co_await each other).
+    [B] Additionally, coroutines are type-erased, meaning that for example every
+    generator that yields ints has the type generator of int, independent of its
+    concrete body. Because of this, all access to the coroutine has to go
+    through opaque function pointers which greatly limits the optimizer.
+    [B]In practice, yielding a single int from a generator costs roughly as much as
+    a function call into a different translation unit, even if the generator
+    body is completely visible to the compiler. While this design has many
+    advantages for task-style asynchronous coroutines, it currently hinders the
+    usage of generators as a convenient way to implement tight-loop input
+    ranges. [B] Our stackful design will aim (and achieve!) to lift those
+    limitations.
+  </aside>
 </section>
 
 <!-- Slide 60: stackful_coroutine_handle -->
@@ -1337,10 +1370,21 @@ struct stackful_coroutine_handle {
 };
   </code></pre>
   <ul>
-    <li>Frame stored by value &rarr; stack or inline in the caller</li>
-    <li>Direct member calls &rarr; fully inlineable</li>
-    <li>No <code>HandleFrame</code>, no vtable</li>
+    <li class="fragment">Frame stored by value &rarr; stack or in registers</li>
+    <li class="fragment">Direct member calls &rarr; fully inlineable</li>
   </ul>
+  <aside class="notes">
+    We start again with a custom coroutine handle, this time a stackful
+    coroutine handle that is templated on the coroutine frame. [B] The handle
+    stores the coroutine frame as a member, meaning that it can be stored on the
+    stack or even in registers if simple enough. This is a great difference to
+    stackless C++20 coroutines, where the handle is a very light and type-erased
+    wrapper around a coroutine. [B] As the handle knows the type of the frame,
+    functions like resume and destroy no longer go through function pointers,
+    but become direct member function calls, which can be easily inlined by the
+    optimizer.
+  </aside>
+
 </section>
 
 <!-- Slide 61: stackful_coro_crtp -->
