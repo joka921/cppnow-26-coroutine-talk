@@ -281,9 +281,8 @@ struct SuspendNever {
   <h2>coro_storage</h2>
   <p>Storing local variables across suspension points</p>
   <pre><code class="language-cpp" data-trim data-noescape>
-template &lt;typename Ref, bool isOwningV&gt;
+template &lt;typename Ref, bool isOwning&gt;
 struct coro_storage {
-  static constexpr bool isOwning = isOwningV;
   // Owning: stores decay_t&lt;Ref&gt; by value
   // Non-owning: stores a pointer
   using Storage = std::conditional_t&lt;isOwning,
@@ -295,10 +294,9 @@ struct coro_storage {
   struct Proxy { Ref ref_; };
 
   Proxy get() noexcept {
-    Storage&amp; s = *std::launder(
-        reinterpret_cast&lt;Storage*&gt;(buffer));
-    if constexpr (isOwning) return Proxy{static_cast&lt;Ref&gt;(s)};
-    else return Proxy{static_cast&lt;Ref&gt;(*s)};
+    Storage&amp; s = *std::launder(reinterpret_cast&lt;Storage*&gt;(buffer));
+    if constexpr (isOwning) return s;
+    else return *s;
   }
 
   void destroy() noexcept(...) {
@@ -1348,27 +1346,36 @@ struct stackful_coroutine_handle {
 <!-- Slide 61: stackful_coro_crtp -->
 <section>
   <h2>stackful_coro_crtp</h2>
-  <ul>
-    <li>No <code>HandleFrame</code> needed &mdash; calls are direct, not through function pointers</li>
-    <li><code>ramp()</code> returns the frame by value (no heap allocation)</li>
-    <li>No symmetric transfer (stack is already flat)</li>
-    <li>Same <code>doStepImpl()</code> and <code>destroySuspendedCoro()</code> interface</li>
-  </ul>
   <pre><code class="language-cpp" data-trim data-noescape>
-template &lt;typename Derived, typename PromiseType, bool isNoexcept&gt;
+template &lt;typename Derived, typename PromiseType&gt;
 struct stackful_coro_crtp {
-  PromiseType promise_;   // no HandleFrame!
+  PromiseType promise_;   // no HandleFrame with function pointers!
   size_t suspendIdx_ = 0;
 
-  // ramp returns by value
+  // ...: doStep(Impl), destroySuspendedCoro etc., identical to stackless.
+
+  // Return the strongly-typed frame by value.
   template &lt;typename... Args&gt;
   static Derived ramp(Args&amp;&amp;... args) {
     Derived frame{std::forward&lt;Args&gt;(args)...};
-    // initial_suspend + get_return_object handled by caller
+    // ... await initial suspend (same as for stackless)
     return frame;
   }
 };
   </code></pre>
+</section>
+
+<!-- Slide 61a: Required changes to generator -->
+<section>
+  <h3> Generator class: Changes required </h3>
+  <ul>
+    <li> Templated on coroutine handle, which is templated on coroutine frame
+    <li> Constructible from coroutine frame (can't use
+      promise_type::get_return_object), because promise is <b>not</b> templated
+      on frame.
+    <li> Copy/move of a generator will copy/move the frame
+    <li> Diff to stackless generator can be encapsulated in a templated policy.
+  </ul>
 </section>
 
 <!-- Slide 62: Unified generator policy -->
@@ -1391,10 +1398,10 @@ struct InlineGeneratorPolicy {
 
 // Aliases:
 template &lt;typename T&gt;
-using heap_generator = unified_generator&lt;T, HeapGeneratorPolicy&lt;T&gt;&gt;;
+using stackless_generator = unified_generator&lt;T, HeapGeneratorPolicy&lt;T&gt;&gt;;
 
 template &lt;typename T, typename CoroFrame&gt;
-using inline_gen = unified_generator&lt;T, InlineGeneratorPolicy&lt;T, CoroFrame&gt;&gt;;
+using stackful_generator = unified_generator&lt;T, InlineGeneratorPolicy&lt;T, CoroFrame&gt;&gt;;
   </code></pre>
 </section>
 
@@ -1404,7 +1411,7 @@ using inline_gen = unified_generator&lt;T, InlineGeneratorPolicy&lt;T, CoroFrame
   <pre><code class="language-cpp" data-trim data-noescape>
 template &lt;bool stackless = true&gt;
 auto iota_unified(int start, int end) {
-  using promise_type = std::conditional_t&lt;stackless,
+  using generator = std::conditional_t&lt;stackless,
       heap_generator&lt;int&gt;::promise_type,
       detail::unified_generator_promise&lt;int&gt;&gt;;
 
@@ -1414,9 +1421,9 @@ auto iota_unified(int start, int end) {
   };
 
   if constexpr (stackless) {
-    return CoroFrame::ramp(start, end);     // heap_generator
+    return stackless_generator<int>{CoroFrame::ramp(start, end);
   } else {
-    return inline_gen&lt;int, CoroFrame&gt;{
+    return stackful_generator&lt;int, CoroFrame&gt;{
         stackful_coroutine_handle&lt;CoroFrame&gt;{
             CoroFrame::ramp(start, end)}};  // inline_gen
   }
@@ -1425,6 +1432,22 @@ auto iota_unified(int start, int end) {
   <p><strong>Same coroutine body. Different allocation strategy.</strong></p>
 </section>
 
+<section>
+  <h3> Initial Benchmarks:</h3>
+  TODO TABLE
+
+  Somewhat underwhelming.
+  Assembly analysis: yielded ints are spilled to stack.
+</section>
+
+<section>
+  Slide about generator, yielding by reference vs by value, 
+  exception-ptr as member.
+</section>
+
+<section>
+  updated benchmarks.
+</section> 
 <!-- Slide 64: Assembly comparison -->
 <section>
   <h2>Assembly Comparison</h2>
