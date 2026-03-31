@@ -179,9 +179,18 @@ struct HandleFrame {
 
 <!-- Slide 9: stackless_coroutine_handle<void> -->
 <section>
-  <h2>stackless_coroutine_handle&lt;void&gt;</h2>
-  <pre><code class="language-cpp" data-trim data-noescape>
-namespace detail {
+  <h3>the coroutine handle</h3>
+  <pre><code class="language-cpp" data-trim data-noescape
+  data-line-numbers=|1-11|15-18|6,16|>
+// Forward declaration.
+template &lt;typename Promise&gt;
+struct stackless_coroutine_handle;
+
+struct HandleFrame {
+  stackless_coroutine_handle&lt;void&gt; (*resumeFunc)(void*);
+  void (*destroyFunc)(void*);
+};
+
 struct stackless_handle_base {
   HandleFrame* ptr;
 
@@ -193,20 +202,33 @@ struct stackless_handle_base {
   operator bool() const { return static_cast&lt;bool&gt;(ptr); }
   bool done() const { return ptr-&gt;resumeFunc == nullptr; }
 };
-}
 
-template &lt;&gt;
-struct stackless_coroutine_handle&lt;void&gt;
-    : public detail::stackless_handle_base {
-  using stackless_handle_base::stackless_handle_base;
-};
   </code></pre>
+  <aside class="notes">
+    Let's first define a coroutine handle class. We start with a common base
+    class .The two important operations of
+    a coroutine handle are to resume and to destroy the coroutine. As the
+    coroutine handle is type-erased wrt to the details of the coroutine frame,
+    we use two function pointers encapsulated into a struct called HandleFrame.
+    The HandleFrame will later be a data member of the actual coroutine frame.
+    The coroutine handle gets a single pointer
+    to that struct, making the handle as lightweight as possible.
+    The required interface is then implemented in terms of those function
+    pointers. The HandleFrame class will later be our first member of the
+    coroutine frame, s.t. its address can be used to compute the address of the
+    frame and therefore is a reasonable argument that we pass to the function
+    pointers. 
+    Note that the function pointer for resuming returns a coroutine handle
+    (instead of void) and that resume is not yet defined. We use this interface
+    to implement symmetric transfer in one of the upcoming slides.
+  </aside>
 </section>
 
 <!-- Slide 10: stackless_coroutine_handle<Promise> -->
 <section>
-  <h2>stackless_coroutine_handle&lt;Promise&gt;</h2>
-  <pre><code class="language-cpp" data-trim data-noescape>
+  <h3>stackless_coroutine_handle</h3>
+  <pre><code class="language-cpp" data-trim data-noescape
+  data-line-numbers="|6-20|22-25|">
 template &lt;typename Promise&gt;
 struct stackless_coroutine_handle
     : public detail::stackless_handle_base {
@@ -228,12 +250,27 @@ struct stackless_coroutine_handle
         reinterpret_cast&lt;char*&gt;(ptr) + promise_offset);
   }
 };
+template &lt;&gt;
+struct stackless_coroutine_handle&lt;void&gt;
+    : public stackless_handle_base {
+  using stackless_handle_base::stackless_handle_base;
+};
   </code></pre>
+  <aside class="notes">
+    Here you see the actual coroutine handle classes. When the coroutine handle
+    is templated on a promise type, it additionally needs conversion functions
+    from and to the promise type. In our coroutine frames we will put the
+    promise object directly after the handle frame, s.t we can perform this
+    conversion by some alignment computation magic and later static_assert in
+    the coroutine frame that the computation actually yields the correct result.
+    The generic coroutine handle templated on void does not have these
+    functions.
+  </aside>
 </section>
 
 <!-- Slide 11: Trampoline (symmetric transfer) -->
 <section>
-  <h2>Trampoline (Symmetric Transfer)</h2>
+  <h3>Trampoline (Symmetric Transfer)</h3>
   <pre><code class="language-cpp" data-trim data-noescape>
 // After stackless_coroutine_handle&lt;void&gt; is complete:
 inline void detail::stackless_handle_base::resume() {
@@ -245,11 +282,21 @@ inline void detail::stackless_handle_base::resume() {
   }
 }
   </code></pre>
-  <ul>
-    <li><code>resumeFunc</code> returns the <em>next</em> handle to resume</li>
-    <li>Loop replaces recursive <code>.resume()</code> calls &rarr; <strong>flat stack</strong></li>
-    <li>Null handle = "no more transfers, stop"</li>
-  </ul>
+  TODO: Blogpost lewis baker link.
+  <aside class="notes">
+    The last thing missing for our custom coroutine handles is the resume
+    function which also supports symmetric transfer. As a reminder: When a
+    coroutine is suspended, it can not only transfer control back to the caller
+    but also symmetrically resume another coroutine. This can be used to avoid
+    stack overflows when coroutines co_await each other, for details see the
+    excellent blog post by Lewis Baker that I have linked on the slide.
+    We implement symmetric transfer by the simple mechanism shown here: If a
+    coroutine wants to transfer control to another coroutine handle, it returns
+    that handle from its resume function and we directly resume that other
+    coroutine in the while loop without returning. If a coroutine wants to
+    return control to the caller it simply returns a default-constructed empty
+    handle, and we break out of the loop.
+  </aside>
 </section>
 
 <!-- Slide 12: SuspendAlways / SuspendNever -->
@@ -463,23 +510,33 @@ stackless_coroutine_handle&lt;void&gt; actor() {
 <!-- Slide 17: destroy() -->
 <section>
   <h2>destroy()</h2>
-  <pre><code class="language-cpp" data-trim data-noescape>
+  <pre><code class="language-cpp" data-trim data-noescape
+		    data-line-numbers="1-4|5-9|10-11|">
 void destroy() {
-  if (!derived().done()) {
-    // Still suspended mid-body: clean up locals
-    derived().destroySuspendedCoro(derived().suspendIdx_);
+  if (!done()) {
+    // Still suspended mid-body: clean up local variables
+    static_cast&lt;Frame&amp;&gt;(this).destroySuspendedCoro();
   } else {
     // At final suspension point: only final_awaiter_ remains
-    derived().final_awaiter_.get().ref_.await_resume();
-    derived().final_awaiter_.destroy();
+    final_awaiter_.get().ref_.await_resume();
+    final_awaiter_.destroy();
   }
   deleteFrame();  // destructor + operator delete
 }
-  </code></pre>
-  <ul>
-    <li><code>destroySuspendedCoro(idx)</code> knows exactly which locals are alive at each suspension point</li>
-    <li>Mirror of the compiler's "cleanup based on suspend point" logic</li>
-  </ul>
+
+</code>
+<aside class="notes">
+  When destroying a suspended coroutine there are two cases:
+  When the coroutine is suspended at a suspension point that is not the final
+  suspension point, for example at a co_await or co_yield statement, then we
+  have to destroy all the buffers for the local variables from the coroutine
+  body that are currently within their lifetime at that suspension point. This
+  again has to be delegated to the derived frame class as it depends on the
+  coroutine body.
+  At the final suspension point, only the final awaiter has to be resumed and
+  destroyed.
+  Finally we again call the destructor and free the memory for the frame.
+</aside>
 </section>
 
 <!-- Slide 18: Macro reference -->
