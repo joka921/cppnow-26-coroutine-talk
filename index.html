@@ -279,7 +279,6 @@ struct SuspendNever {
 
 <!-- Slide 13: coro_storage -->
 <section>
-  <h2>coro_storage</h2>
   <p>Storing local variables across suspension points</p>
   <pre><code class="language-cpp" data-trim data-noescape>
 template &lt;typename Ref, bool isOwning&gt;
@@ -303,29 +302,40 @@ struct coro_storage {
   void destroy() noexcept(...) {
     std::launder(reinterpret_cast&lt;Storage*&gt;(buffer))-&gt;~Storage();
   }
+
+  // Emplacement via placement new (encapsulated in a macro).
 };
   </code></pre>
+
+  <aside class="notes">
+    To store local variables from the coroutine body in the frame, we use a
+    suitably aligned uninitialized buffer, that is typed on the reference type
+    of the variable, and the information on whether the variable actually owns
+    and stores an object, which is the case for object-type variables, but also
+    for reference variables that extend the lifetime of temporaries. We then use
+    placement new and explicit destructor calls to manage the lifetime of the
+    objects. I now again have two questions for you: Why does the get function
+    which we use to access the stored value with the correct reference semantics
+    return a proxy object instead of directly the reference? And why don't we
+    have construct or emplace function, but use a macro for construction?
+  </aside>
+</section>
+<section>
+  TODO Slide with answers, 1. because of rvalue reference semantics (don't
+  std::move)), 2. because of copy elision.
 </section>
 
 <!-- Slide 14: CRTP base layout -->
 <section>
   <h2>CRTP Base Layout</h2>
-  <pre><code class="language-cpp" data-trim data-noescape>
-template &lt;typename Derived, typename PromiseType, bool isNoexcept&gt;
+  <pre><code class="language-cpp" data-trim data-noescape
+		    data-line-numbers="1-2|3-12|14|16-18|20-25|">
+template &lt;typename Frame, typename PromiseType&gt;
 struct stackless_coro_crtp {
   // Must match stackless_coroutine_handle layout:
   // promise_ directly after frame_
   HandleFrame frame_;
   PromiseType promise_;
-
-  size_t suspendIdx_ = 0;
-  size_t currentTryBlock_ = CO_NO_TRY_BLOCK;  // exception dispatch
-
-  // Awaiters for initial_suspend() and final_suspend()
-  coro_storage&lt;decltype(promise_.initial_suspend())&amp;, true&gt;
-      initial_awaiter_;
-  coro_storage&lt;decltype(promise_.final_suspend())&amp;, true&gt;
-      final_awaiter_;
 
   // Constructor: wire up function pointers
   stackless_coro_crtp() {
@@ -333,25 +343,49 @@ struct stackless_coro_crtp {
     frame_.destroyFunc = &amp;stackless_coro_crtp::destroy;
   }
 
-  // Derived must implement:
-  //   doStepImpl()            — the actor state machine
-  //   destroySuspendedCoro()  — cleanup at each suspend point
+  size_t suspendIdx_ = 0;
+
+  // Awaiters for initial_suspend() and final_suspend()
+  coro_storage&lt;InitialSuspendT&amp;, true&gt; initial_awaiter_;
+  coro_storage&lt;FinalSuspendT&amp;, true&gt; final_awaiter_;
+
+  template&lt;typename... CoroArgs&gt;
+  static auto ramp(CoroArgs&amp;&amp;... coroArgs);
+
+  stackless_coroutine_handle&lt;void&gt; actor() noexcept;
+
+  void destroy();
 };
   </code></pre>
+  <aside class="notes">
+    A lot of the boilerplate for the coroutine frame is the same for all
+    coroutines and can be extracted into a common base class via CRTP as you can
+    see here: It starts with the two function pointers for the resume and
+    destroy functions, which have to be stored directly before the promise
+    object to make the conversions from coroutine handles to promises work.
+    When suspending a coroutine, we have to keep track of at which suspension
+    point we later have to resume. Each coroutine has an initial and final
+    awaiter for which we need (possibly empty) buffers. The three central member
+    functions are the ramp which initially sets up the coroutine, the actor
+    which resumes a coroutine until the next suspension or till completion, and
+    the destroy function which is used to destroy a suspended coroutine. We now
+    look at those functions in detail.
+  </aside>
 </section>
+
 
 <!-- Slide 15: ramp() function -->
 <section>
-  <h2>ramp() &mdash; The Coroutine Entry Point</h2>
-  <pre><code class="language-cpp" data-trim data-noescape>
+  <pre><code class="language-cpp" data-trim data-noescape
+		    data-line-numbers="1-9|11-20|21-23|">
 template &lt;typename... CoroArgs&gt;
-static auto ramp(CoroArgs&amp;&amp;... coroArgs) {
+static auto stackless_coro_crtp::ramp(CoroArgs&amp;&amp;... coroArgs) {
   // 1. Allocate the frame
   void* coroMem = promise_allocate&lt;PromiseType&gt;(
-      sizeof(Derived), std::forward&lt;CoroArgs&gt;(coroArgs)...);
+      sizeof(Frame), std::forward&lt;CoroArgs&gt;(coroArgs)...);
 
   // 2. Placement-new the Derived frame
-  auto* frame = new(coroMem) Derived{
+  auto* frame = new(coroMem) Frame{
       std::forward&lt;CoroArgs&gt;(coroArgs)...};
 
   // 3. get_return_object (stored on caller's stack)
@@ -369,6 +403,24 @@ static auto ramp(CoroArgs&amp;&amp;... coroArgs) {
   return ret;
 }
   </code></pre>
+  <aside class="notes">
+    The ramp function first has to allocate memory for the coroutine frame and
+    then construct the frame inside that memory. The allocation can be
+    customized via the promise-type and the arguments given to the coroutine,
+    which is handled by the rather technical promise_allocate function. The
+    arguments of the coroutine have to be copied into the frame, which has to be
+    done by the Frame constructor.
+    We then obtain the return object from the promise type and await the initial
+    awaiter. Therefore we first have to obtain the initial awaiter and store it
+    in the buffer, as it must live across a possible suspension. The macro that
+    does the actual co_await will be explained later in detail it behaves
+    roughly as "await this awaiter, if we need to suspend, here is the handle to
+    suspend, and what to return to the caller (namely the return object) in case
+    of a suspension. If the initial awaiter does not suspend (e.g. because it is
+    suspend_never, then we resume the coroutine and only when it finally
+    suspends and returns control back to us return the return_object to the
+    caller.
+  </aside> 
 </section>
 
 <!-- Slide 16: doStep() actor -->
@@ -1314,7 +1366,7 @@ DESTROY_IF_CONSTRUCTED(
 
 <!-- Slide 59: Problem with stackless -->
 <section>
-  <h2>The Problem with Stackless</h2>
+  <h2>Characteristics of Stackless Coroutines</h2>
   <ul>
     <li class="fragment"
       data-notes="As the coroutine frames
@@ -1395,11 +1447,12 @@ struct stackful_coroutine_handle {
 
 <!-- Slide 61: stackful_coro_crtp -->
 <section>
-  <h2>stackful_coro_crtp</h2>
+  <h2>Stackful CRTP Base for Frames</h2>
   <pre><code class="language-cpp" data-trim data-noescape>
 template &lt;typename Derived, typename PromiseType&gt;
 struct stackful_coro_crtp {
-  PromiseType promise_;   // no HandleFrame with function pointers!
+  PromiseType promise_;   
+  // no more function pointers.
   size_t suspendIdx_ = 0;
 
   // ...: doStep(Impl), destroySuspendedCoro etc., identical to stackless.
@@ -1413,47 +1466,46 @@ struct stackful_coro_crtp {
   }
 };
   </code></pre>
+  <aside class="notes">
+    In our CRTP base class for coroutine frames, we actually don't have to
+    change much. We still need to store the promise, the suspension index, and
+    most of the control functions like the actor and destroy functions can stay
+    exactly the same as for the stackless case. The only relevant change is in
+    the ramp function, which now returns the stackful coroutine frame directly.
+    We cannot use the get-return-object mechanism of the promise type, as the
+    promise type is the one thing we do NOT template on the coroutine frame due
+    to cyclic dependencies. This then implies, that our coroutine class (e.g.
+    the stackful generator) can be constructed from a coroutine frame, or a
+    handle which embeds that frame.
+  </aside>
 </section>
 
 <!-- Slide 61a: Required changes to generator -->
 <section>
   <h3> Generator class: Changes required </h3>
   <ul>
-    <li> Templated on coroutine handle, which is templated on coroutine frame
-    <li> Constructible from coroutine frame (can't use
-      promise_type::get_return_object), because promise is <b>not</b> templated
-      on frame.
-    <li> Copy/move of a generator will copy/move the frame
-    <li> Diff to stackless generator can be encapsulated in a templated policy.
+    <li class="fragment"> Generator is templated on coroutine handle, coroutine handle is templated on frame
+    <li class="fragment"> Constructible from coroutine frame (previous slide)
+    <li class="fragment"> Move of a generator will move the frame
   </ul>
+
+  <aside class="notes">
+    For the coroutine type (a generator in our example) we also have to apply
+    some changes: [B]Since the coroutine handle is now templated on the coroutine
+    frame, the generator also needs to be templated on the frame or handle, as
+    it has to embed a handle to control the coroutine. [B] as previously stated
+    the generator needs to be constructible from the frame or handle, to convert
+    the result of the ramp function to the actual coroutine object.
+    [B] While in stackless coroutines a move operation is a simple pointer
+    reassignment, we now have to move the complete frame. Currently, our frame
+    implementation doesn't yet this because of the manual buffer management, but
+    it can be extended to do so.
+    In practice we can implement a unified generator template with only a
+    few if-constexpr clauses to distinguish between the stackless and stackful
+    implementation. The details are omitted here for brevity, but all source
+    code is available.  </aside>
 </section>
 
-<!-- Slide 62: Unified generator policy -->
-<section>
-  <h2>Unified Generator Policy</h2>
-  <pre><code class="language-cpp" data-trim data-noescape>
-// Same generator template, different policies:
-
-template &lt;typename T&gt;
-struct HeapGeneratorPolicy {
-  using handle_type = stackless_coroutine_handle&lt;promise_type&gt;;
-  static constexpr bool nullable = true;
-};
-
-template &lt;typename T, typename CoroFrame&gt;
-struct InlineGeneratorPolicy {
-  using handle_type = stackful_coroutine_handle&lt;CoroFrame&gt;;
-  static constexpr bool nullable = false;
-};
-
-// Aliases:
-template &lt;typename T&gt;
-using stackless_generator = unified_generator&lt;T, HeapGeneratorPolicy&lt;T&gt;&gt;;
-
-template &lt;typename T, typename CoroFrame&gt;
-using stackful_generator = unified_generator&lt;T, InlineGeneratorPolicy&lt;T, CoroFrame&gt;&gt;;
-  </code></pre>
-</section>
 
 <!-- Slide 63: iota: same frame, two policies -->
 <section>
@@ -1461,7 +1513,7 @@ using stackful_generator = unified_generator&lt;T, InlineGeneratorPolicy&lt;T, C
   <pre><code class="language-cpp" data-trim data-noescape>
 template &lt;bool stackless = true&gt;
 auto iota_unified(int start, int end) {
-  using generator = std::conditional_t&lt;stackless,
+  using promise_type = std::conditional_t&lt;stackless,
       heap_generator&lt;int&gt;::promise_type,
       detail::unified_generator_promise&lt;int&gt;&gt;;
 
@@ -1470,16 +1522,21 @@ auto iota_unified(int start, int end) {
     // ... same doStepImpl, same destroySuspendedCoro ...
   };
 
-  if constexpr (stackless) {
-    return stackless_generator<int>{CoroFrame::ramp(start, end);
-  } else {
-    return stackful_generator&lt;int, CoroFrame&gt;{
-        stackful_coroutine_handle&lt;CoroFrame&gt;{
-            CoroFrame::ramp(start, end)}};  // inline_gen
-  }
+  using generator = std::conditional_t&lt;stackless,
+      stackless_generator&lt;int&gt;,
+      stackful_generator&lt;int&gt;&gt;;
+    return generator{CoroFrame::ramp(start, end);
 }
   </code></pre>
   <p><strong>Same coroutine body. Different allocation strategy.</strong></p>
+  <aside class="notes">
+    The only thing remaining is to now stitch everything together. You see the
+    (shortened) implementation of a unified iota generator, that can be either
+    stackless or stackful by just flipping a compile time bool. Luckily we
+    have implemented the stackful infrastructure compatible with the stackless
+    infrastructure and can thus use the same rewritten coroutine body, and only
+    have to use different CRTP base classes and return types.
+  </aside>
 </section>
 
 <section>
@@ -1491,8 +1548,31 @@ auto iota_unified(int start, int end) {
 </section>
 
 <section>
-  Slide about generator, yielding by reference vs by value, 
-  exception-ptr as member.
+  <pre><code class="language-cpp" data-trim data-noescape>
+template &lt;typename T&gt;
+struct generator_promise {
+   // set during yield_value, points into the coroutine frame.
+   T* value_;
+   std::exception_ptr exception_;
+   // ...
+}
+  </code></pre>
+  <ul>
+    <li class="fragment"> pointer needs an address, no register </li> 
+    <li class="fragment"> Solution: Store yielded elements by value for simple
+      types </li>
+    <li class="fragment"> std::exception_ptr is not trivially destructible </li> 
+    <li class="fragment"> Solution: handle lifetime of the exception manually</li> 
+  </ul>
+
+  <aside class="notes">
+    This is (greatly simplified) how typical generator implementations store the
+    most recently yielded value, as well as exceptions that occur in the
+    coroutine body and have to be propagated to the consumer of the yielded
+    value. What is problematic with these definitions when we expect our whole
+    coroutine infrastructure to be put into registers? --- BREAK and discuss
+    with audience ---
+  </aside>
 </section>
 
 <section>
