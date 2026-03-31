@@ -425,30 +425,39 @@ static auto stackless_coro_crtp::ramp(CoroArgs&amp;&amp;... coroArgs) {
 
 <!-- Slide 16: doStep() actor -->
 <section>
-  <h2>doStep() &mdash; The Actor Function</h2>
-  <pre><code class="language-cpp" data-trim data-noescape>
-stackless_coroutine_handle&lt;void&gt; doStep() noexcept(isNoexcept) {
-  if constexpr (isNoexcept) {
-    // No exception handling needed
-    return derived().doStepImpl();
-  } else {
-    auto&amp; d = derived();
-    try {
-      return d.doStepImpl();
-    } catch (...) {
-      auto [handle, frame_destroyed] = d.handleException();
-      if (frame_destroyed) return handle;
-
-      // Exception was caught, re-enter state machine
-      if (!d.done()) {
-        return d.doStep();  // recursive call for catch dispatch
-      }
-      return handle;
-    }
+  <h3>actor() </h3>
+  <pre><code class="language-cpp" data-trim data-noescape
+  data-line-numbers="1-3|4-8|10-15|">
+stackless_coroutine_handle&lt;void&gt; actor() {
+  try {
+    return static_cast&lt;Frame&amp;&gt;(this).actorImpl();
+  } catch (...) {
+    promise_.unhandled_exception();
   }
+  auto&amp;&amp; awaiter = CO_STORAGE_CONSTRUCT(final_awaiter_, promise_.final_suspend());
+  CO_AWAIT_IMPL_IMPL(awaiter, getHandle());
+
+  // Final awaiter didn't suspend, clean up and delete the frame.
+  awaiter.await_resume();
+  final_awaiter_.destroy();
+  handle.resume();
+  deleteFrame();
+  return {};
 }
   </code></pre>
-  <p><small>The <code>try/catch</code> wrapper enables coroutine-level exception dispatch</small></p>
+  <aside class="notes">
+    Most of the actor function has to be implemented in the derived frame class
+    via an actorImpl() member function,
+    as the actor encodes the actual coroutine body and thus is different for each
+    coroutine.
+    The only thing we can encode in the CRTP class is the handling of exceptions
+    that escape from the coroutine body. In that case we first have to call the
+    unhandled_exception member function of the promise object. Then we await the
+    final awaiter which is analogous to what we just saw for the initial
+    awaiter. This call typically suspends and thus returns to the caller, which
+    can then destroy the coroutine. If the final awaiter doesn't resume, we have
+    to immediately destroy and delete the coroutine frame ourselves.
+  </aside>
 </section>
 
 <!-- Slide 17: destroy() -->
