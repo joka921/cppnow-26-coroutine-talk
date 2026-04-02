@@ -615,8 +615,6 @@ generator&lt;int&gt; iota(int start, int end) {
   }
 }
   </code></pre>
-  <p>The simplest POSSible generator. One suspension point inside the loop. No
-  stack variables.</p>
 </section>
 
 <!-- Slide 22: Frame layout -->
@@ -626,7 +624,7 @@ generator&lt;int&gt; iota(int start, int end) {
 auto iota_unified(int start, int end) {
   using promise_type = generator&lt;int&gt;::promise_type;
 
-  struct CoroFrame : coro_crtp&lt;CoroFrame, promise_type&gt; {
+  struct CoroFrame : stackless_coro_crtp&lt;CoroFrame, promise_type&gt; {
     int start_;    // parameter → stored in frame
     int end_;      // parameter → stored in frame
 
@@ -751,18 +749,12 @@ for (int v : iota_unified(0, 5)) {
 <!-- SECTION 3b: Generator with Local Variables (7 slides + disc)   -->
 <!-- ============================================================ -->
 
-<!-- Slide 29: Section title -->
-<section>
-  <h1>Example (b)</h1>
-  <h3>Local Variables Across Suspension</h3>
-</section>
-
 <!-- Slide 30: C++20 version -->
 <section>
-  <h2>string_prepend &mdash; C++20</h2>
+  <h3>Example B &mdash;Local variables across suspension</h3>
   <pre><code class="language-cpp" data-trim data-noescape>
-generator&lt;std::string&gt; string_prepend(
-        auto&amp;&amp; rangeOfStrings, std::string prefix) {
+generator&lt;string&gt; string_prepend(
+         generator&lt;string&gt; rangeOfStrings, string prefix) {
   auto it = rangeOfStrings.begin();
   auto end = rangeOfStrings.end();
   for (; it != end; ++it) {
@@ -772,7 +764,7 @@ generator&lt;std::string&gt; string_prepend(
   </code></pre>
   <ul>
     <li>Iterator variables live across suspension points</li>
-    <li><code>prefix + s</code> creates a temporary that must survive the yield</li>
+    <li><code>prefix + *it</code> creates a temporary that must survive the yield</li>
     <li>These locals need explicit lifetime management in the frame</li>
   </ul>
 </section>
@@ -782,30 +774,31 @@ generator&lt;std::string&gt; string_prepend(
   <h2>string_prepend &mdash; Frame Layout</h2>
   <pre><code class="language-cpp" data-trim data-noescape>
 struct CoroFrame
-    : coro_crtp&lt;CoroFrame, promise_type&gt; {
-  RangeOfStrings&amp;&amp; rangeOfStrings_;
-  std::string prefix_;
+    : stackless_coro_crtp&lt;CoroFrame, promise_type&gt; {
+  // Coroutine arguments:
+  generator&lt;string&gt; input_;
+  string prefix_;
 
   // Local variables stored as coro_storage:
-  using It  = std::remove_cvref_t&lt;decltype(rangeOfStrings_.begin())&gt;;
-  using End = std::remove_cvref_t&lt;decltype(rangeOfStrings_.end()));&gt;;
+  using It  = std::remove_cvref_t&lt;decltype(input_.begin())&gt;;
+  using End = std::remove_cvref_t&lt;decltype(input_.end()));&gt;;
 
   coro_storage&lt;It&amp;, true&gt; it_;    // iterator
   coro_storage&lt;const End&amp;, true&gt; end_; // sentinel
-  coro_storage&lt;std::string&amp;&amp;, true&gt; tmp_;   // yield temp
+  coro_storage&lt;string&amp;&amp;, true&gt; tmp_;   // yield temp
 
-  CoroFrame(RangeOfStrings&amp;&amp; ros, std::string pref)
-      : rangeOfStrings_(std::forward&lt;RangeOfStrings&gt;(ros)),
-        prefix_(std::move(pref)) {}
+  // ... 
 };
   </code></pre>
   <p><small> What does the type of `tmp_` depend on?</small></p>
 </section>
 
-<!-- Slide 32: doStepImpl() -->
+<!-- Slide 32+33: doStepImpl() + destroySuspendedCoro() -->
 <section>
-  <h2>string_prepend &mdash; doStepImpl()</h2>
-  <pre><code class="language-cpp" data-trim data-noescape>
+  <h2>string_prepend &mdash; Frame Functions</h2>
+  <div style="display: flex; gap: 2em; align-items: flex-start;">
+    <div style="flex: 1;">
+      <pre><code class="language-cpp" data-trim data-noescape>
 stackless_coroutine_handle&lt;void&gt; doStepImpl() {
   switch (suspendIdx_) {
     case 0: break;
@@ -826,14 +819,10 @@ stackless_coroutine_handle&lt;void&gt; doStepImpl() {
 
   CO_RETURN_VOID(2, final_awaiter_);
 }
-  </code></pre>
-
-</section>
-
-<!-- Slide 33: destroySuspendedCoro() -->
-<section>
-  <h2>string_prepend &mdash; destroySuspendedCoro()</h2>
-  <pre><code class="language-cpp" data-trim data-noescape>
+      </code></pre>
+    </div>
+    <div style="flex: 1;">
+      <pre><code class="language-cpp" data-trim data-noescape>
 void destroySuspendedCoro() {
   switch (suspendIdx_) {
     case 0:
@@ -843,14 +832,16 @@ void destroySuspendedCoro() {
     case 1:
       // Mid-loop, at co_yield — tmp_ is alive!
       initial_awaiter_.destroy();
-      tmp_.destroy(); 
+      tmp_.destroy();
     case 2: [[fallthrough]]
       end_.destroy();
       it_.destroy();
       return;
   }
 }
-  </Code></pre>
+      </code></pre>
+    </div>
+  </div>
 </section>
 
 <!-- Slide 34: Key takeaway -->
@@ -870,40 +861,6 @@ void destroySuspendedCoro() {
   </ul>
 </section>
 
-<!-- Slide 35: Side-by-side -->
-<section>
-  <h2>Side-by-Side Comparison</h2>
-  <div class="two-column">
-    <div>
-      <h4>C++20</h4>
-      <pre><code class="language-cpp" data-trim data-noescape>
-for (const auto&amp; s
-     : rangeOfStrings) {
-  co_yield (prefix + s);
-}
-      </code></pre>
-    </div>
-    <div>
-      <h4>C++17 (hand-lowered)</h4>
-      <pre><code class="language-cpp" data-trim data-noescape>
-CO_INIT(it_,
-    (rangeOfStrings_.begin()));
-CO_INIT(end_,
-    (rangeOfStrings_.end()));
-
-for (; CO_GET(it_) != CO_GET(end_);
-     ++CO_GET(it_)) {
-  CO_INIT(tmp_,
-      (prefix_ + *CO_GET(it_)));
-  CO_YIELD(1, initial_awaiter_,
-            CO_GET(tmp_));
-  tmp_.destroy();
-}
-      </code></pre>
-    </div>
-  </div>
-  <p><small>The structure is preserved. The ceremony is the lifetime management.</small></p>
-</section>
 
 <!-- Slide 36: Discussion -->
 <section>
@@ -1185,17 +1142,12 @@ coroutine_handle&lt;void&gt; doStepImpl() {
 <!-- SECTION 3d: Exception Handling (9 slides + discussion)        -->
 <!-- ============================================================ -->
 
-<!-- Slide 48: Section title -->
+<!-- Slide 49+50: throwing_parse_ints + Two Challenges -->
 <section>
-  <h1>Example (d)</h1>
-  <h3>Exception Handling</h3>
-  <p>"The hardest part"</p>
-</section>
-
-<!-- Slide 49: C++20 version -->
-<section>
-  <h2>throwing_parse_ints &mdash; C++20</h2>
-  <pre><code class="language-cpp" data-trim data-noescape>
+  <h3>Example D &mdash; Exception Handling</h3>
+  <div style="display: flex; gap: 2em; align-items: flex-start;">
+    <div style="flex: 1;">
+      <pre><code class="language-cpp" data-trim data-noescape>
 generator&lt;int&gt; throwing_parse_ints(
     auto&amp;&amp; strings, bool catch_errors) {
   for (const auto&amp; s : strings) {
@@ -1209,52 +1161,43 @@ generator&lt;int&gt; throwing_parse_ints(
     }
   }
 }
-  </code></pre>
-  <p><code>co_yield</code> inside a try-block, <code>break</code> inside catch handlers.</p>
-</section>
-
-<!-- Slide 50: Three challenges -->
-<section>
-  <h2>Two Challenges</h2>
-  <ol>
-    <li><strong>Resuming into a try block</strong>
-      <ul><li>goto may not jump into a try block</li>
-	  <li>Not even with asm goto on Itanium ABI</li>
-          <li>Solution: subdispatch in every try-block that contains suspension
-	  points</li></ul>
-    </li>
-    <li><strong>Stack Unwinding</strong>
-      <ul><li>Exception can occur at any point &mdash; which locals are alive?</li>
-          <li>Solution: At runtime keep track of all the in-scope locals</li>
-	  <li> Unfortunately, not zero overhead </li>
-      </ul>
-    </li>
-  </ol>
+      </code></pre>
+      <p><code>co_yield</code> inside a try-block, <code>break</code> inside catch handlers.</p>
+    </div>
+    <div style="flex: 1;">
+      <h3>Two Challenges</h3>
+      <ol>
+        <li><strong>Resuming into a try block</strong>
+	  <ul><li><code>goto</code> may not jump into a try block</li>
+        </ul>
+        <li><strong>Stack Unwinding</strong>
+          <ul><li>Exceptions can occur anywhere &mdash; which locals are
+	      alive and thus have to be destroyed?</li>
+          </ul>
+        </li>
+      </ol>
+    </div>
+  </div>
   <aside class="notes">
-    Exceptions in the coroutine bode pose two additional challenges: Firstly,
+    So far we have completely ignored the possibility of exceptions that might
+    be thrown and/or caught from the coroutine body. 
+    [B] To illustrate how we deal with exceptions we will use the example of the
+    left. It is a generator that tries to parse the strings it obtains from
+    another generator and then yields them. Exceptions can either be silently
+    caught, or rethrown to the consumer.
+    [B] Exceptions pose two additional challenges: Firstly,
     when there is a co_await or co_yield statement inside a try-block, we must
     support resumption at that block. [B] we cannot directly jump into a
     try-block via goto or switch. I couldn't even get this to work with unsafe
     hacks using asm goto (so goto on the assembly level) that assume the details of the exception handling of
     the Itanium ABI, as even asm goto is aware of the try-block and refuses to
-    jump into it. [B] The solution is to use subdispatching switch statements
-    inside the try-blocks, which unfortunately bloats the code up a little.
-    [B]
-    The second big challenge is the required stack unwinding when an exception
+    jump into it.  [B]
+    The second challenge is the required stack unwinding when an exception
     is actually thrown. All variables that are in scope then have to be
     destroyed until one of the nested scopes finds a matching catch clause. We
     therefore for each statement and substatement we have to know which of the local variables
     from the coroutine body that live in our rewritten buffers are currently
-    within lifetime. [B] The simplest way to do this is to for each rewritten
-    local variable store an additional boolean flag whether it is currently
-    withing lifetime and then use this information when exceptions are thrown. 
-    [B] A small downside of this approach is that it is not zero overhead for
-    the case that no exception is thrown, as each constructor and destructor of
-    a local variable additionally has to modify the corresponding flag, but more
-    involved exception handling (e.g. like in the Itanium ABI with the complete
-    separate lookup table from program counters to active variables) is in my
-    eyes unfeasible when performing a source-to-source rewrite.
-  </aside>
+    within lifetime. </aside>
 </section>
 
 <!-- Slide 51: Frame: __constructed tracking -->
@@ -1698,6 +1641,9 @@ struct generator_promise {
         hash: true,
         slideNumber: true,
         transition: 'slide',
+        width: 1600,
+        height: 900,
+        margin: 0.04,
         plugins: [
           RevealMarkdown,
           RevealHighlight,
