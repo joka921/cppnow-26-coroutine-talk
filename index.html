@@ -1203,7 +1203,6 @@ generator&lt;int&gt; throwing_parse_ints(
       co_yield std::stoi(s);
     } catch (const std::invalid_argument&amp;) {
       if (!catch_errors) throw;
-      continue;
     } catch (const std::out_of_range&amp;) {
       if (!catch_errors) throw;
       break;
@@ -1211,7 +1210,7 @@ generator&lt;int&gt; throwing_parse_ints(
   }
 }
   </code></pre>
-  <p><code>co_yield</code> inside a try-block, <code>continue</code> and <code>break</code> inside catch handlers.</p>
+  <p><code>co_yield</code> inside a try-block, <code>break</code> inside catch handlers.</p>
 </section>
 
 <!-- Slide 50: Three challenges -->
@@ -1231,6 +1230,31 @@ generator&lt;int&gt; throwing_parse_ints(
       </ul>
     </li>
   </ol>
+  <aside class="notes">
+    Exceptions in the coroutine bode pose two additional challenges: Firstly,
+    when there is a co_await or co_yield statement inside a try-block, we must
+    support resumption at that block. [B] we cannot directly jump into a
+    try-block via goto or switch. I couldn't even get this to work with unsafe
+    hacks using asm goto (so goto on the assembly level) that assume the details of the exception handling of
+    the Itanium ABI, as even asm goto is aware of the try-block and refuses to
+    jump into it. [B] The solution is to use subdispatching switch statements
+    inside the try-blocks, which unfortunately bloats the code up a little.
+    [B]
+    The second big challenge is the required stack unwinding when an exception
+    is actually thrown. All variables that are in scope then have to be
+    destroyed until one of the nested scopes finds a matching catch clause. We
+    therefore for each statement and substatement we have to know which of the local variables
+    from the coroutine body that live in our rewritten buffers are currently
+    within lifetime. [B] The simplest way to do this is to for each rewritten
+    local variable store an additional boolean flag whether it is currently
+    withing lifetime and then use this information when exceptions are thrown. 
+    [B] A small downside of this approach is that it is not zero overhead for
+    the case that no exception is thrown, as each constructor and destructor of
+    a local variable additionally has to modify the corresponding flag, but more
+    involved exception handling (e.g. like in the Itanium ABI with the complete
+    separate lookup table from program counters to active variables) is in my
+    eyes unfeasible when performing a source-to-source rewrite.
+  </aside>
 </section>
 
 <!-- Slide 51: Frame: __constructed tracking -->
@@ -1257,21 +1281,14 @@ struct CoroFrame: coro_crtp&lt;CoroFrame, promise_type&gt; {
   } __constructed ;
 };
   </code></pre>
-  <p><small>Note: We coulD OMIt the tracking for trivially destructible types</small></p>
+  <p><small>Note: We could omit the tracking for trivially destructible types</small></p>
 </section>
 
 <!-- Slide 52: doStepImpl(): try block + labels -->
 <section>
-  <h2>doStepImpl() &mdash; Try Block + Labels</h2>
   <pre class="small-code"><code class="language-cpp" data-trim data-noescape>
-stackless_coroutine_handle&lt;void&gt; doStepImpl() {
-  switch (this-&gt;suspendIdx_) {
-    case 0:  break;
-    case 1:  goto label_1;       // resume at co_yield
-    case 12: goto try_end;       // resume after caught exception
-    case 20: goto for_continue;  // continue from catch
-    case 21: goto for_break;     // break from catch
-  }
+stackless_coroutine_handle&lt;void&gt; actorImpl() {
+  switch (this-&gt;suspendIdx_) { case 1:  goto try_label_1; }
 
   CO_GET(initial_awaiter_).await_resume();
   DESTROY_UNCONDITIONALLY(initial_awaiter_);
@@ -1279,130 +1296,26 @@ stackless_coroutine_handle&lt;void&gt; doStepImpl() {
   CO_INIT_EX(end_, (this-&gt;strings_.end()));
 
   for (; CO_GET(it_) != CO_GET(end_); ++CO_GET(it_)) {
-    this-&gt;currentTryBlock_ = 0;                      // enter try
-    CO_INIT_EX(parsed_, (std::stoi(*CO_GET(it_))));
-    CO_YIELD(1, initial_awaiter_, CO_GET(parsed_));
-    DESTROY_UNCONDITIONALLY(parsed_);
-    this-&gt;currentTryBlock_ = CoroFrameBase::CO_NO_TRY_BLOCK; // exit try
-  try_end:
-  for_continue:
-    ;
+    try_label_1:
+    try {
+      try {
+        switch (this-&gt;suspendIdx_) { case 1:  goto label_1; }
+        CO_YIELD(1, initial_awaiter_, CO_CONSTRUCT(parsed_,(std::stoi(*CO_GET(it_)))));
+        DESTROY_UNCONDITIONALLY(parsed_);
+      } catch(...) {
+        DESTROY_IF_CONSTRUCTED(initial_awaiter_, parsed_);
+      }
+    } catch (const std::invalid_argument&amp;) {
+      if (!catch_errors) throw;
+    } catch (const std::out_of_range&amp;) {
+      if (!catch_errors) throw;
+      break;
+    }
   }
-for_break:
-  DESTROY_UNCONDITIONALLY(end_);
-  DESTROY_UNCONDITIONALLY(it_);
+  DESTROY_UNCONDITIONALLY(end_, it_);
   CO_RETURN_VOID(2, final_awaiter_);
 }
   </code></pre>
-</section>
-
-<!-- Slide 53: dispatchExceptionHandling() -->
-<section>
-  <h2>dispatchExceptionHandling()</h2>
-  <pre><code class="language-cpp" data-trim data-noescape>
-ExceptionResult dispatchExceptionHandling() {
-  switch (this-&gt;currentTryBlock_) {
-    case CoroFrameBase::CO_NO_TRY_BLOCK: {
-      // Outside any try-block → unhandled
-      DESTROY_IF_CONSTRUCTED(end_);
-      DESTROY_IF_CONSTRUCTED(it_);
-      DESTROY_IF_CONSTRUCTED(initial_awaiter_);
-      return this-&gt;unhandled_exception();
-    }
-    case 0:
-      return handleCatchClause_0();
-    default:
-      __builtin_unreachable();
-  }
-}
-  </code></pre>
-  <ul>
-    <li>Called from the <code>catch(...)</code> in <code>doStep()</code></li>
-    <li>Routes to the right handler based on <code>currentTryBlock_</code></li>
-    <li>Outside any try-block: destroy what's alive, call <code>unhandled_exception()</code></li>
-  </ul>
-</section>
-
-<!-- Slide 54: handleCatchClause_0() -->
-<section>
-  <h2>handleCatchClause_0()</h2>
-  <pre class="small-code"><code class="language-cpp" data-trim data-noescape>
-ExceptionResult handleCatchClause_0() {
-  this-&gt;currentTryBlock_ = CoroFrameBase::CO_NO_TRY_BLOCK;
-  try {
-    DESTROY_IF_CONSTRUCTED(parsed_);
-    this-&gt;suspendIdx_ = 12;    // default: resume after try-catch
-    try {
-      throw;                    // rethrow to match catch clauses
-    } catch (const std::invalid_argument&amp;) {
-      if (!catch_errors_) throw;
-      this-&gt;suspendIdx_ = 20;  // continue → loop end
-    } catch (const std::out_of_range&amp;) {
-      if (!catch_errors_) throw;
-      this-&gt;suspendIdx_ = 21;  // break → after loop
-    }
-    return {};  // exception handled, resume with new suspendIdx_
-  } catch (...) {
-    // No catch matched, or rethrew → propagate up
-    return dispatchExceptionHandling();
-  }
-}
-  </code></pre>
-</section>
-
-<!-- Slide 55: Why rethrow? -->
-<section>
-  <h2>Why Rethrow?</h2>
-  <ul>
-    <li>A coroutine <strong>cannot suspend inside a catch handler</strong>
-      <ul><li>The exception object would be destroyed on stack unwind</li></ul>
-    </li>
-    <li>Solution: catch clause sets <code>suspendIdx_</code> and <strong>returns</strong></li>
-    <li><code>doStep()</code> sees the exception was handled, calls <code>doStep()</code> again</li>
-    <li><code>doStepImpl()</code> resumes at the new <code>suspendIdx_</code> &mdash; outside any catch</li>
-  </ul>
-  <pre><code class="language-cpp" data-trim data-noescape>
-// In doStep():
-catch (...) {
-  auto [handle, frame_destroyed] = d.handleException();
-  if (!d.done()) {
-    return d.doStep();  // re-enter with new suspendIdx_
-  }
-}
-  </code></pre>
-</section>
-
-<!-- Slide 56: Exception-safe cleanup -->
-<section>
-  <h2>Exception-Safe Cleanup</h2>
-  <div class="two-column">
-    <div>
-      <h4>At suspension points</h4>
-      <pre><code class="language-cpp" data-trim data-noescape>
-// destroySuspendedCoro:
-// Exact knowledge of
-// what's alive
-case 1:
-  initial_awaiter_.destroy();
-  parsed_.destroy();
-  it_.destroy();
-  end_.destroy();
-  return;
-      </code></pre>
-    </div>
-    <div>
-      <h4>During exceptions</h4>
-      <pre><code class="language-cpp" data-trim data-noescape>
-// dispatchExceptionHandling:
-// Must check each local
-DESTROY_IF_CONSTRUCTED(end_);
-DESTROY_IF_CONSTRUCTED(it_);
-DESTROY_IF_CONSTRUCTED(
-    initial_awaiter_);
-      </code></pre>
-    </div>
-  </div>
-  <p style="margin-top:0.5em">At suspension points we know exactly what's alive. During exceptions we don't &mdash; hence <code>DESTROY_IF_CONSTRUCTED</code> with the tracking booleans.</p>
 </section>
 
 <!-- Slide 57: Discussion -->
