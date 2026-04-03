@@ -26,6 +26,58 @@
   <p><small>Johannes Kalmbach &mdash; C++Now 2026</small></p>
 </section>
 
+<section>
+  <h3> Font size check </h3>
+      <pre><code class="language-cpp" data-trim data-noescape>
+// This will be the font size of code samples.
+// There will be quite some code samples.
+// Choose your seat accordingly.
+inline void fix_seating(Attendee&amp; a) {
+  while (!a.can_read_code()) {
+    a.move_towards_front();
+  }
+}
+</code></pre>
+
+</section>
+
+<section>
+  <h3> About me </h3>
+  <ul>
+    <li> C++ programmer for ca. 10 years</li>
+    <li> Last year of PhD program in Freiburg/Germany </li>
+    <li> I develop QLever, a highly scalable RDF/SPARQL graph database </li>
+    <li> Cofounder of QLeverize (qleverize.com) where we commercialize QLever
+    </li>
+
+  </ul>
+</section>
+
+<section>
+  <h3> One day on the GitHub repo of our C++20 codebase... </h3>
+  <ul>
+    <li> Do you also support older standards like C++14?</li>
+    <li> ... we've also heard "have you considered rewriting everything in Rust"</li>
+    <li> Some time later: "We can in fact use C++17 and can contribute resources
+      (developers and money) to a (partial) migration back to C++17, what do you
+      think...."
+    </li>
+    <li> ... "okay, let's do this" </li>
+    <li> Needed to migrate C++20 coroutines </li>
+  </ul>
+</section>
+
+<section>
+  <h3> Migrating coroutines </h3>
+  <ul>
+  <li> Production solution: manual rewrite to ranges/state machines. </li>
+  <ul> <li>Code less readable</li>
+       <li> Subtle lifetime issues</li>
+  </ul>
+  <li> Is there a better way </li>
+  </ul>
+</section>
+
 <!-- Slide 2: Motivation -->
 <section>
   <h2>Why Would You Do This?</h2>
