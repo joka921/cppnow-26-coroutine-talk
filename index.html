@@ -24,6 +24,11 @@
   <h1 style="font-size:1.8em">No Compiler Required</h1>
   <h3>Hand-Rolling C++20 Coroutines in C++17</h3>
   <p><small>Johannes Kalmbach &mdash; C++Now 2026</small></p>
+
+  <aside class="notes">
+    Good afternoon everybody. My name is Johannes Kalmbach and I am going to
+    talk about how to hand roll C++20 coroutines in pure C++17.
+  </aside>
 </section>
 
 <section>
@@ -39,42 +44,107 @@ inline void fix_seating(Attendee&amp; a) {
 }
 </code></pre>
 
+TODO PDF download link + livestream server.
+
+<aside class="notes">
+  First things first, we will have quite some code examples which are essential
+  for understanding this talk, and this will be their font size. You can either
+  choose your seating in the room accordingly or alternatively download the
+  slides. Alternatively you can follow the slides either via the static PDFs, or
+  the presentation livestream shown on the slides.
+</aside>
+
 </section>
 
 <section>
   <h3> About me </h3>
   <ul>
     <li> C++ programmer for ca. 10 years</li>
-    <li> Last year of PhD program in Freiburg/Germany </li>
-    <li> I develop QLever, a highly scalable RDF/SPARQL graph database </li>
-    <li> Cofounder of QLeverize (qleverize.com) where we commercialize QLever
+    <li class="fragment" data-notes="I am currently researching and being employed at the University of
+    Freiburg in southern Germany, where I will (hopefully) finish my PhD this
+    year. "> Last year of PhD program in Freiburg/Germany </li>
+    <li class="fragment" data-notes="The core of my work is QLever, a highly scalable RDF/SPARQL graph
+    database that can deal with hundreds of billions of statements on a single
+    commodity PC. If you have an interest in knowledge graphs, semantic web
+    technologies, and data management in general, please come talk to me in the
+    hallway.">
+ I develop QLever, a highly scalable RDF/SPARQL graph database </li>
+    <li class="fragment" data-notes="We recently also founded a company called qleverize which offers
+	       commercial support and extensions for our open-source database.">
+ Cofounder of QLeverize (qleverize.com) where we commercialize QLever
     </li>
 
   </ul>
+  <aside class="notes">
+    If you don't know me yet, I have been a C++ programmer for about 10 years,
+    and last year I gave my first talk at a C++ conference.
+    We recently also founded a company called qleverize which offers
+    commercial support and extensions for our open-source database.
+  </aside>
 </section>
 
 <section>
-  <h3> One day on the GitHub repo of our C++20 codebase... </h3>
-  <ul>
-    <li> Do you also support older standards like C++14?</li>
-    <li> ... we've also heard "have you considered rewriting everything in Rust"</li>
-    <li> Some time later: "We can in fact use C++17 and can contribute resources
-      (developers and money) to a (partial) migration back to C++17, what do you
-      think...."
-    </li>
-    <li> ... "okay, let's do this" </li>
-    <li> Needed to migrate C++20 coroutines </li>
-  </ul>
+  <h3>One day on the GitHub repo of our C++20 codebase&hellip;</h3>
+
+  <div class="fragment" style="margin-top: 1em;"
+    data-notes="Quite some time ago, on our public GitHub repository, we
+    received the following question. At first we did not take this too
+    seriously, because we were using modern C++20 features quite extensively,
+    and therefore put this request in the same category as questions like Did
+    you consider rewriting everything in Rust.">
+    <p style="font-size:0.75em; color:#aaa; margin-bottom:0.2em;">A new issue appears:</p>
+    <blockquote style="font-style:italic;">&ldquo;Do you also support older standards like C++14?&rdquo;</blockquote>
+  </div>
+
+  <div class="fragment" style="margin-top: 0.8em;" data-notes="But some time
+    later, they doubled down and offered C++17 as a target standard, as well as
+    developer resources on their side as well as some money for us for
+    coordination to actually tackle a partial migration of our codebase back to
+    C++17">
+    <p style="font-size:0.75em; color:#aaa; margin-bottom:0.2em;">Some time later, a more serious message:</p>
+    <blockquote style="font-style:italic;">&ldquo;We can in fact use C++17 and can contribute resources &mdash; developers and money &mdash; to a partial migration back to C++17. What do you think?&rdquo;</blockquote>
+  </div>
+
+  <div class="fragment" style="margin-top: 0.8em;" data-notes="
+    This offer was really interesting for our newly founded company, and thus
+    this migration project started, which is an interesting story on its own,
+    but a story for another day.">
+    <p style="font-size:0.75em; color:#aaa; margin-bottom:0.2em;">The reply:</p>
+    <blockquote style="font-style:italic;">&ldquo;Okay, let&rsquo;s do this.&rdquo;</blockquote>
+  </div>
+
+  <p class="fragment" style="margin-top: 1.2em; font-size: 1.1em; font-weight: bold; border-top: 1px solid #666; padding-top: 0.6em;"
+  data-notes="The most challenging feature to migrate back was our migration of
+  C++20 coroutines, which motivated this talk.">
+    Which meant migrating our C++20 coroutines.
+  </p>
 </section>
 
 <section>
   <h3> Migrating coroutines </h3>
   <ul>
-  <li> Production solution: manual rewrite to ranges/state machines. </li>
-  <ul> <li>Code less readable</li>
-       <li> Subtle lifetime issues</li>
+  <li class="fragment" data-notes="Most of our coroutines were generators. In
+	     production we migrated them by using an extended fork of Eric
+	     Niebler's range-v3 library and custom state-machine-like rewrites"> Production solution: manual rewrite to ranges/state machines. </li>
+  <ul> <li class="fragment" data-notes="In the meantime,
+		  this migration effort has been completed, and I as the
+		  maintainer have mixed feelings about the migrated code and the
+		  way it was created. On the one hand the rewritten code is
+		  often longer and less readable than the original coroutines,
+		  as it contains some infrastructure that the coroutines would
+		  have hidden.">Code less readable</li>
+    <li class="fragment" data-notes="In particular, the initially proposed code
+	       introduced several subtle lifetime issues (which have in the
+	       meantime all be mitigated). The systemic reason behind this was
+	       that to rewrite a coroutine you need to be familiar with the coroutine
+	       semantics, which the external developers were not, as they mainly
+	       work on C++17 codebases.">  Subtle lifetime issues</li>
   </ul>
-  <li> Is there a better way </li>
+  <li class="fragment" data-notes="Thus, when reflecting on the finished
+	     migration, I wondered if there was an alterative way to migrate
+	     coroutines, in particular a more generic way that could even be run
+	     automatically. This lead me down a deep rabbit hole, and I now want
+	     to share with you, what I found there."> Is there a better way </li>
   </ul>
 </section>
 
