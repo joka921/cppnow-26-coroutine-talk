@@ -60,16 +60,16 @@ TODO PDF download link + livestream server.
   <h3> About me </h3>
   <ul>
     <li> C++ programmer for ca. 10 years</li>
-    <li class="fragment" data-notes="I am currently researching and being employed at the University of
+    <li class="fragment" data-speaker-notes="I am currently researching and being employed at the University of
     Freiburg in southern Germany, where I will (hopefully) finish my PhD this
     year. "> Last year of PhD program in Freiburg/Germany </li>
-    <li class="fragment" data-notes="The core of my work is QLever, a highly scalable RDF/SPARQL graph
+    <li class="fragment" data-speaker-notes="The core of my work is QLever, a highly scalable RDF/SPARQL graph
     database that can deal with hundreds of billions of statements on a single
     commodity PC. If you have an interest in knowledge graphs, semantic web
     technologies, and data management in general, please come talk to me in the
     hallway.">
  I develop QLever, a highly scalable RDF/SPARQL graph database </li>
-    <li class="fragment" data-notes="We recently also founded a company called qleverize which offers
+    <li class="fragment" data-speaker-notes="We recently also founded a company called qleverize which offers
 	       commercial support and extensions for our open-source database.">
  Cofounder of QLeverize (qleverize.com) where we commercialize QLever
     </li>
@@ -78,16 +78,14 @@ TODO PDF download link + livestream server.
   <aside class="notes">
     If you don't know me yet, I have been a C++ programmer for about 10 years,
     and last year I gave my first talk at a C++ conference.
-    We recently also founded a company called qleverize which offers
-    commercial support and extensions for our open-source database.
-  </aside>
+      </aside>
 </section>
 
 <section>
   <h3>One day on the GitHub repo of our C++20 codebase&hellip;</h3>
 
   <div class="fragment" style="margin-top: 1em;"
-    data-notes="Quite some time ago, on our public GitHub repository, we
+    data-speaker-notes="Quite some time ago, on our public GitHub repository, we
     received the following question. At first we did not take this too
     seriously, because we were using modern C++20 features quite extensively,
     and therefore put this request in the same category as questions like Did
@@ -96,7 +94,7 @@ TODO PDF download link + livestream server.
     <blockquote style="font-style:italic;">&ldquo;Do you also support older standards like C++14?&rdquo;</blockquote>
   </div>
 
-  <div class="fragment" style="margin-top: 0.8em;" data-notes="But some time
+  <div class="fragment" style="margin-top: 0.8em;" data-speaker-notes="But some time
     later, they doubled down and offered C++17 as a target standard, as well as
     developer resources on their side as well as some money for us for
     coordination to actually tackle a partial migration of our codebase back to
@@ -105,7 +103,7 @@ TODO PDF download link + livestream server.
     <blockquote style="font-style:italic;">&ldquo;We can in fact use C++17 and can contribute resources &mdash; developers and money &mdash; to a partial migration back to C++17. What do you think?&rdquo;</blockquote>
   </div>
 
-  <div class="fragment" style="margin-top: 0.8em;" data-notes="
+  <div class="fragment" style="margin-top: 0.8em;" data-speaker-notes="
     This offer was really interesting for our newly founded company, and thus
     this migration project started, which is an interesting story on its own,
     but a story for another day.">
@@ -114,38 +112,40 @@ TODO PDF download link + livestream server.
   </div>
 
   <p class="fragment" style="margin-top: 1.2em; font-size: 1.1em; font-weight: bold; border-top: 1px solid #666; padding-top: 0.6em;"
-  data-notes="The most challenging feature to migrate back was our migration of
+  data-speaker-notes="The most challenging feature to migrate back was our migration of
   C++20 coroutines, which motivated this talk.">
     Which meant migrating our C++20 coroutines.
   </p>
+  <aside class="notes"></aside>
 </section>
 
 <section>
   <h3> Migrating coroutines </h3>
   <ul>
-  <li class="fragment" data-notes="Most of our coroutines were generators. In
+  <li class="fragment" data-speaker-notes="Most of our coroutines were generators. In
 	     production we migrated them by using an extended fork of Eric
 	     Niebler's range-v3 library and custom state-machine-like rewrites"> Production solution: manual rewrite to ranges/state machines. </li>
-  <ul> <li class="fragment" data-notes="In the meantime,
+  <ul> <li class="fragment" data-speaker-notes="In the meantime,
 		  this migration effort has been completed, and I as the
 		  maintainer have mixed feelings about the migrated code and the
 		  way it was created. On the one hand the rewritten code is
 		  often longer and less readable than the original coroutines,
 		  as it contains some infrastructure that the coroutines would
 		  have hidden.">Code less readable</li>
-    <li class="fragment" data-notes="In particular, the initially proposed code
+    <li class="fragment" data-speaker-notes="In particular, the initially proposed code
 	       introduced several subtle lifetime issues (which have in the
 	       meantime all be mitigated). The systemic reason behind this was
 	       that to rewrite a coroutine you need to be familiar with the coroutine
 	       semantics, which the external developers were not, as they mainly
 	       work on C++17 codebases.">  Subtle lifetime issues</li>
   </ul>
-  <li class="fragment" data-notes="Thus, when reflecting on the finished
+  <li class="fragment" data-speaker-notes="Thus, when reflecting on the finished
 	     migration, I wondered if there was an alterative way to migrate
 	     coroutines, in particular a more generic way that could even be run
 	     automatically. This lead me down a deep rabbit hole, and I now want
 	     to share with you, what I found there."> Is there a better way </li>
   </ul>
+  <aside class="notes"></aside>
 </section>
 
 <!-- Slide 2: Motivation -->
@@ -1432,7 +1432,7 @@ stackless_coroutine_handle&lt;void&gt; actorImpl() {
   <h2>Characteristics of Stackless Coroutines</h2>
   <ul>
     <li class="fragment"
-      data-notes="As the coroutine frames
+      data-speaker-notes="As the coroutine frames
     are allocated on the heap by default, each invocation of a coroutine 
     has to pay the price of a heap allocation. Custom allocators are
     supported, but need to be managed explicitly. HALO (meaning heap allocation
@@ -1446,7 +1446,7 @@ stackless_coroutine_handle&lt;void&gt; actorImpl() {
       <ul><li>HALO helpful, but unreliable</li></ul>
     </li>
     <li class="fragment"
-      data-notes="Additionally, coroutines are type-erased, meaning that for example every
+      data-speaker-notes="Additionally, coroutines are type-erased, meaning that for example every
     generator that yields ints has the type generator of int, independent of its
     concrete body. Because of this, all access to the coroutine has to go
     through opaque function pointers which greatly limits the optimizer."
@@ -1454,7 +1454,7 @@ stackless_coroutine_handle&lt;void&gt; actorImpl() {
       Type erasure + function pointer indirection hinder optimizations
     </li>
     <li class="fragment"
-      data-notes="In practice, yielding a single int from a generator costs roughly as much as
+      data-speaker-notes="In practice, yielding a single int from a generator costs roughly as much as
     a function call into a different translation unit, even if the generator
     body is completely visible to the compiler. While this design has many
     advantages for task-style asynchronous coroutines, it currently hinders the
@@ -1463,7 +1463,7 @@ stackless_coroutine_handle&lt;void&gt; actorImpl() {
       Unacceptable overhead for tight loops. </li>
   </ul>
   <p class="fragment" style="margin-top:1em"
-  data-notes="Our stackful design will aim (and achieve!) to lift those
+  data-speaker-notes="Our stackful design will aim (and achieve!) to lift those
     limitations."
   ><strong>Can we do better when the coroutine type is known at the call site?</strong></p>
 
@@ -1698,30 +1698,30 @@ struct generator_promise {
 <section>
   <h2>Automating the rewrite</h2>
   <ul>
-    <li class="fragment" data-fragment-index=1 data-notes=
+    <li class="fragment" data-fragment-index=1 data-speaker-notes=
       "Until now, we have manually performed all the transformations from C++20
        coroutines to C++17. As usual for a conference talk, I hope that this
        work was interesting, insightful or even inspirational.">So far, manual rewrite</li>
     <ul> 
       <li class="fragment" data-fragment-index=1> Hopefully interesting, maybe even inspirational </li>
-      <li class="fragment" data-notes="
+      <li class="fragment" data-speaker-notes="
         But I really hope that none of you is considering to use these manual
 	rewrites in practice, as they are really tedious, and also very
 	error-prone in particular because of all the subtleties wrt manual
 	lifetime management.
 	"> Not pratical
     </ul>
-    <li class="fragment" data-notes="
+    <li class="fragment" data-speaker-notes="
 	 When having a closer look we see, that the rewrites are not only
 	 tedious, but also very mechanical and rule-based 
 	       ">Transformations are tedious, but <strong> mechanical </strong></li>
       <ul> 
-	<li class="fragment" data-notes="
+	<li class="fragment" data-speaker-notes="
           So in principle we should be able to implement them using a powerful
 	  tool that is able to reflect on the C++20 coroutine code and
 	  automatically rewrite it.
 	  "> Can be automated using reflection
-	<li class="fragment" data-notes="
+	<li class="fragment" data-speaker-notes="
 	  C++26 reflection obviously is not powerful enough, as it currently
 	  doesn't support reflecting on expressions and statements, and also the
 	  source creation capabilities are very limited. But hopefully in the
@@ -1730,7 +1730,7 @@ struct generator_promise {
 	  of what used to be core language features purely as reflection-based
 	  library features, and coroutines would definitely be a candidate for
 	  such a feature."> C++ standard reflection not (yet) powerful enough
-	  <li class="fragment" data-notes="
+	  <li class="fragment" data-speaker-notes="
 	    LibClang on the other hand is powerful enough already today, as it
 	    can reflect on the complete AST and can inject and replace the
 	    source code directly as an intermediate step before compilation. I
@@ -1738,19 +1738,19 @@ struct generator_promise {
 	    LibClang which I will introduce and demonstrate now."> LibClang to the rescue.
       </ul>
   </ul>
-
+  <aside class="notes"></aside>
 </section>
 <section>
   <h3>Implementation and Limitations</h3>
   <ul>
-    <li class="fragment" data-notes="
+    <li class="fragment" data-speaker-notes="
 	The rewriter in principle follows the same approach as in our manual
 	rewrites: It detects coroutines and converts them to state machines by
 	extracting local variables to frame members, rewriting the
 	co_yield, co_await, and co_return expressions, introducing a switch- and
 	goto-based resumption mechanism and so on...
 	       "> Principle: perform the same steps as in manual rewrite.
-    <li class="fragment" data-notes="
+    <li class="fragment" data-speaker-notes="
 	So far we have completely ignored the very common case of the coroutine
 	being a template. While we probably could rewrite the template directly,
 	this is would get messy real fast, because we would end up with a deeply
@@ -1763,6 +1763,7 @@ struct generator_promise {
 	       "> For templates, rewrite the instantiations as overloads/specializations.
       <li> Only simple expressions supported in <code> co_yield/co_await </code></li>
   </ul>
+  <aside class="notes"></aside>
 </section>
 
 <section>
@@ -1855,7 +1856,7 @@ struct generator_promise {
       // Store the original notes per slide so we can restore them
 Reveal.on('fragmentshown', event => {
   const fragment = event.fragment;
-  const notes = fragment.dataset.notes;
+  const notes = fragment.dataset.speakerNotes;
   if (notes) {
     const slide = fragment.closest('section');
     // Save original notes if not already saved
@@ -1874,10 +1875,10 @@ Reveal.on('fragmenthidden', event => {
   // Check if any visible fragment still has notes
   const visibleFragmentWithNotes = [...slide.querySelectorAll('.fragment.visible')]
     .reverse()
-    .find(f => f.dataset.notes);
+    .find(f => f.dataset.speakerNotes);
 
   if (visibleFragmentWithNotes) {
-    slide.querySelector('aside.notes').innerHTML = visibleFragmentWithNotes.dataset.notes;
+    slide.querySelector('aside.notes').innerHTML = visibleFragmentWithNotes.dataset.speakerNotes;
   } else if (slide.dataset.originalNotes !== undefined) {
     // Restore original slide notes
     slide.querySelector('aside.notes').innerHTML = slide.dataset.originalNotes;
