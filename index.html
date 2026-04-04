@@ -183,6 +183,189 @@ TODO PDF download link + livestream server.
 <!-- SECTION 1: Refresher (3 slides)                               -->
 <!-- ============================================================ -->
 
+<!-- Slide 3b: Coroutine anatomy overview diagram -->
+<section>
+  <h2>Coroutine Anatomy &mdash; Overview</h2>
+
+  <!--
+    ╔══════════════════════════════════════════════════════════════╗
+    ║  FONT SIZE: change --diag-fs to scale all diagram text.     ║
+    ║  SVG arrow labels are set to 0.85 × --diag-fs via inline    ║
+    ║  style on the <svg>; they scale automatically.              ║
+    ╚══════════════════════════════════════════════════════════════╝
+  -->
+  <div style="
+      --diag-fs: 30px;
+      position: relative;
+      width: 1460px;
+      height: 555px;
+      font-size: var(--diag-fs);
+      margin: 0 auto;
+  ">
+
+    <!--
+      COORDINATE NOTES (all px, absolute within this container):
+        Code box  : left=20,  top=10, w=400, right=420
+        Frame box : left=488, top=10, w=454, right=942  center-x=715≈ch-center
+          promise subbox  abs y: 52 – 124   center-y = 88
+          locals  subbox  abs y: 130 – 202
+          frame outer bottom  ≈ 220
+        Generator : left=0, top=310, w=1460
+          ch subbox abs-left=494, abs-right=966, center-x=730
+          ch subbox abs top (title strip + header) ≈ 310+42 = 352
+
+      ARROWS:
+        Arrow 1 (solid teal, ch → whole frame):
+          (710, 310) → (710, 221)   straight vertical, just left of centre
+        Arrow 2 (dashed teal, ch → promise subbox):
+          (750, 310) → right → (962, 310) → up → (962, 88) → left → (943, 88)
+          routes along generator top border, then up outside frame's right edge
+        Arrow 3 (blue, code → frame, "synthesized"):
+          (421, 90) → (487, 90)     short horizontal
+    -->
+
+    <!-- ═══ SVG arrows ═══ -->
+    <svg style="position:absolute;top:0;left:0;width:1460px;height:555px;
+                overflow:visible;pointer-events:none;
+                font-size:calc(var(--diag-fs) * 0.85);">
+      <defs>
+        <marker id="ah-teal" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <path d="M0,0 L8,3 L0,6 Z" fill="#5FC8C8"/>
+        </marker>
+        <marker id="ah-blue" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <path d="M0,0 L8,3 L0,6 Z" fill="#7EB8E8"/>
+        </marker>
+      </defs>
+
+      <!-- Arrow 3: code ──synthesized──▶ frame  (horizontal, blue) -->
+      <line x1="421" y1="90" x2="487" y2="90"
+            stroke="#7EB8E8" stroke-width="2" marker-end="url(#ah-blue)"/>
+      <text x="454" y="82" fill="#7EB8E8" font-size="1em"
+            text-anchor="middle" font-style="italic">synthesized</text>
+
+      <!-- Arrow 1: coroutine_handle ──▶ whole frame  (solid teal, vertical) -->
+      <line x1="710" y1="310" x2="710" y2="230"
+            stroke="#5FC8C8" stroke-width="2" marker-end="url(#ah-teal)"/>
+      <text x="600" y="272" fill="#5FC8C8" font-size="1em">points to frame</text>
+
+      <!-- Arrow 2: coroutine_handle ──▶ promise subbox  (dashed teal, routed outside frame) -->
+      <!-- Path: right along generator top, up outside frame right edge, left into promise -->
+      <polyline
+        points="750,310 962,310 962,88 943,88"
+        stroke="#5FC8C8" stroke-width="1.8" stroke-dasharray="6,4"
+        fill="none" marker-end="url(#ah-teal)"/>
+      <!-- label on the vertical segment, rotated to read top→bottom -->
+      <text fill="#5FC8C8" font-size="1em" text-anchor="middle"
+            transform="translate(976,200) rotate(90)">→ promise()</text>
+    </svg>
+
+    <!-- ═══ TOP-LEFT: C++20 source ═══ -->
+    <div style="position:absolute; left:20px; top:10px; width:400px;">
+      <div style="background:#181828; border:1px solid #555; border-radius:7px;
+                  padding:11px 14px;">
+        <div style="color:#777; font-size:0.82em; margin-bottom:5px;
+                    letter-spacing:.05em; text-transform:uppercase;">C++20 coroutine</div>
+        <pre style="margin:0; background:none; padding:0;"><code class="language-cpp"
+          style="background:none; padding:0; font-size:0.92em; line-height:1.6;">generator&lt;int&gt; iota(int n) {
+  while (true)
+    co_yield n++;
+}</code></pre>
+      </div>
+    </div>
+
+    <!-- ═══ TOP-CENTRE: Coroutine Frame  (centred above coroutine_handle) ═══ -->
+    <div style="position:absolute; left:488px; top:10px; width:454px;">
+      <div style="border:2px solid #9B6DD5; border-radius:8px; padding:10px 12px;
+                  background:rgba(155,109,213,0.08);">
+        <div style="color:#C4A8E8; font-weight:bold; text-align:center; font-size:1.05em;
+                    margin-bottom:8px;">
+          Coroutine Frame
+          <span style="font-size:0.78em; font-weight:normal; color:#777;">&thinsp;(heap)</span>
+        </div>
+        <!-- promise subbox — fixed height so SVG coords are stable -->
+        <div style="background:rgba(155,109,213,0.22); border:1px solid #9B6DD590;
+                    border-radius:5px; padding:0 10px; margin-bottom:6px;
+                    height:72px; display:flex; flex-direction:column; justify-content:center;">
+          <div><span style="color:#C4A8E8; font-weight:bold;">promise</span>
+               <span style="color:#777; font-size:0.82em;">&ensp;(promise_type instance)</span></div>
+        </div>
+        <!-- parameters + locals subbox -->
+        <div style="background:rgba(155,109,213,0.14); border:1px solid #9B6DD560;
+                    border-radius:5px; padding:0 10px;
+                    height:72px; display:flex; flex-direction:column; justify-content:center;">
+          <div style="color:#C4A8E8; font-weight:bold; margin-bottom:3px;">parameters + locals</div>
+          <div style="color:#bbb; font-size:0.88em;">
+            <code style="background:none;padding:0;">int n;</code>&ensp;&hellip;
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ BOTTOM: generator&lt;int&gt; ═══ -->
+    <div style="position:absolute; left:0; top:310px; width:1460px;">
+      <div style="border:2px solid #5B9BD5; border-radius:8px; padding:10px 12px;
+                  background:rgba(91,155,213,0.06);">
+        <div style="color:#A8C8E8; font-weight:bold; text-align:center; font-size:1.05em;
+                    margin-bottom:8px;">
+          generator&lt;int&gt;
+          <span style="font-size:0.78em; font-weight:normal; color:#777;">&thinsp;(the type the caller sees)</span>
+        </div>
+        <div style="display:flex; gap:10px;">
+
+          <!-- promise_type -->
+          <div style="flex:1; background:rgba(91,155,213,0.18); border:1px solid #5B9BD580;
+                      border-radius:6px; padding:8px 12px;">
+            <div style="color:#A8C8E8; font-weight:bold; border-bottom:1px solid #5B9BD540;
+                        padding-bottom:4px; margin-bottom:6px;">promise_type</div>
+            <div style="color:#ddd; line-height:1.65; font-size:0.9em;">
+              <code style="background:none;padding:0;">initial_suspend()</code><br/>
+              <code style="background:none;padding:0;">final_suspend()</code><br/>
+              <code style="background:none;padding:0;">yield_value(...)</code><br/>
+              <code style="background:none;padding:0;">get_return_object()</code><br/>
+              <code style="background:none;padding:0;">return_void()</code><br/>
+              <code style="background:none;padding:0;">unhandled_exception()</code><br/>
+              <span style="color:#555;">&hellip;</span>
+            </div>
+          </div>
+
+          <!-- coroutine_handle -->
+          <div style="flex:1; background:rgba(32,178,170,0.13); border:1px solid #20B2AA80;
+                      border-radius:6px; padding:8px 12px;">
+            <div style="color:#5FC8C8; font-weight:bold; border-bottom:1px solid #20B2AA40;
+                        padding-bottom:4px; margin-bottom:6px;">
+              coroutine_handle&lt;promise_type&gt;
+            </div>
+            <div style="color:#ddd; line-height:1.65; font-size:0.9em;">
+              <code style="background:none;padding:0;">resume()</code><br/>
+              <code style="background:none;padding:0;">destroy()</code><br/>
+              <code style="background:none;padding:0;">done()</code><br/>
+              <code style="background:none;padding:0;">promise()</code><br/>
+              <code style="background:none;padding:0;">operator bool()</code><br/>
+              <span style="color:#555;">&hellip;</span>
+            </div>
+          </div>
+
+          <!-- user interface -->
+          <div style="flex:1; background:rgba(60,179,113,0.12); border:1px solid #3CB37180;
+                      border-radius:6px; padding:8px 12px;">
+            <div style="color:#90D4A0; font-weight:bold; border-bottom:1px solid #3CB37140;
+                        padding-bottom:4px; margin-bottom:6px;">user interface</div>
+            <div style="color:#ddd; line-height:1.65; font-size:0.9em;">
+              <code style="background:none;padding:0;">begin()</code><br/>
+              <code style="background:none;padding:0;">end()</code><br/>
+              <code style="background:none;padding:0;">operator++()</code><br/>
+              <code style="background:none;padding:0;">operator*()</code><br/>
+              <span style="color:#555;">&hellip;</span>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
 <!-- Slide 4: Coroutine anatomy -->
 <section>
   <h2>Coroutine Anatomy</h2>
