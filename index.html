@@ -225,7 +225,10 @@ TODO PDF download link + livestream server.
     -->
 
     <!-- ═══ SVG arrows ═══ -->
-    <svg id="arrow-synthesized" style="position:absolute;top:0;left:0;width:1460px;height:555px;
+    <!-- Each arrow + its label is wrapped in a <g id="..."> so that
+         getBoundingClientRect() on the group returns the tight visual
+         bounds of that arrow alone — used by the highlight overlay system. -->
+    <svg style="position:absolute;top:0;left:0;width:1460px;height:555px;
                 overflow:visible;pointer-events:none;
                 font-size:calc(var(--diag-fs) * 0.85);">
       <defs>
@@ -238,25 +241,29 @@ TODO PDF download link + livestream server.
       </defs>
 
       <!-- Arrow 3: code ──synthesized──▶ frame  (horizontal, blue) -->
-      <line x1="421" y1="90" x2="487" y2="90"
-            stroke="#7EB8E8" stroke-width="2" marker-end="url(#ah-blue)"/>
-      <text x="454" y="82" fill="#7EB8E8" font-size="1em"
-            text-anchor="middle" font-style="italic">synthesized</text>
+      <g id="diag-arrow-synth">
+        <line x1="421" y1="90" x2="487" y2="90"
+              stroke="#7EB8E8" stroke-width="2" marker-end="url(#ah-blue)"/>
+        <text x="454" y="82" fill="#7EB8E8" font-size="1em"
+              text-anchor="middle" font-style="italic">synthesized</text>
+      </g>
 
       <!-- Arrow 1: coroutine_handle ──▶ whole frame  (solid teal, vertical) -->
-      <line x1="710" y1="310" x2="710" y2="230"
-            stroke="#5FC8C8" stroke-width="2" marker-end="url(#ah-teal)"/>
-      <text x="600" y="272" fill="#5FC8C8" font-size="1em">points to frame</text>
+      <g id="diag-arrow-points-to">
+        <line x1="710" y1="310" x2="710" y2="230"
+              stroke="#5FC8C8" stroke-width="2" marker-end="url(#ah-teal)"/>
+        <text x="600" y="272" fill="#5FC8C8" font-size="1em">points to frame</text>
+      </g>
 
       <!-- Arrow 2: coroutine_handle ──▶ promise subbox  (dashed teal, routed outside frame) -->
-      <!-- Path: right along generator top, up outside frame right edge, left into promise -->
-      <polyline
-        points="750,310 962,310 962,88 943,88"
-        stroke="#5FC8C8" stroke-width="1.8" stroke-dasharray="6,4"
-        fill="none" marker-end="url(#ah-teal)"/>
-      <!-- label on the vertical segment, rotated to read top→bottom -->
-      <text fill="#5FC8C8" font-size="1em" text-anchor="middle"
-            transform="translate(976,200) rotate(90)">→ promise()</text>
+      <g id="diag-arrow-promise">
+        <polyline
+          points="750,310 962,310 962,88 943,88"
+          stroke="#5FC8C8" stroke-width="1.8" stroke-dasharray="6,4"
+          fill="none" marker-end="url(#ah-teal)"/>
+        <text fill="#5FC8C8" font-size="1em" text-anchor="middle"
+              transform="translate(976,200) rotate(90)">→ promise()</text>
+      </g>
     </svg>
 
     <!-- ═══ TOP-LEFT: C++20 source ═══ -->
@@ -306,7 +313,7 @@ for (int i : iota(3)) {
     </div>
 
     <!-- ═══ BOTTOM: generator&lt;int&gt; ═══ -->
-    <div style="position:absolute; left:0; top:310px; width:1460px;">
+    <div id="diag-generator-complete" style="position:absolute; left:0; top:310px; width:1460px;">
       <div style="border:2px solid #5B9BD5; border-radius:8px; padding:10px 12px;
                   background:rgba(91,155,213,0.06);">
         <div style="color:#A8C8E8; font-weight:bold; text-align:center; font-size:1.05em;
@@ -317,7 +324,7 @@ for (int i : iota(3)) {
         <div style="display:flex; gap:10px;">
 
           <!-- promise_type -->
-          <div style="flex:1; background:rgba(91,155,213,0.18); border:1px solid #5B9BD580;
+          <div id="diag-promise" style="flex:1; background:rgba(91,155,213,0.18); border:1px solid #5B9BD580;
                       border-radius:6px; padding:8px 12px;">
             <div style="color:#A8C8E8; font-weight:bold; border-bottom:1px solid #5B9BD540;
                         padding-bottom:4px; margin-bottom:6px;">promise_type</div>
@@ -350,7 +357,7 @@ for (int i : iota(3)) {
           </div>
 
           <!-- user interface -->
-          <div style="flex:1; background:rgba(60,179,113,0.12); border:1px solid #3CB37180;
+          <div id="diag-user-interface" style="flex:1; background:rgba(60,179,113,0.12); border:1px solid #3CB37180;
                       border-radius:6px; padding:8px 12px;">
             <div style="color:#90D4A0; font-weight:bold; border-bottom:1px solid #3CB37140;
                         padding-bottom:4px; margin-bottom:6px;">user interface</div>
@@ -410,66 +417,111 @@ for (int i : iota(3)) {
                 background: rgba(255,215,0,0.05);">
     </div>
     <div class="fragment current-visible" data-fragment-index="1"
-         data-highlight-target="arrow-synthesized"
+         data-highlight-target="diag-arrow-synth"
          data-highlight-padding="6"
-         data-speaker-notes="A coroutine is a function that uses one of the
-			     special keywords co_return, co_yield, or co_await.
-			     The co_yield and co_await keywords can return the
-			     control back to the caller. In contrast to ordinary
-			     functions, a coroutine can later be resumed at the
-			     position of the most recent co_yield or co_await.
-			     The return type of the coroutine (generator of int
-			     in our example) specifies the semantics of the
-			     coroutine. In our example defines input iterators
-			     for the generator that will always produce the most
-			     recently yielded value when being consumed."         style="position:absolute; pointer-events:none; z-index:20;
-                border:3px solid #FFD700; border-radius:9px;
-                box-shadow: 0 0 22px rgba(255,215,0,0.45);
-                background: rgba(255,215,0,0.05);">
-    </div>
-    <div class="fragment current-visible" data-fragment-index="111"
-         data-highlight-target="diag-frame"
-         data-highlight-padding="6"
-         data-speaker-notes="The coroutine frame is the central runtime object. It is
-         heap-allocated when the coroutine is first called, and freed when the coroutine
-         completes or is destroyed. Everything that must survive a suspension point lives
-         here: the promise object and all parameters and local variables whose lifetimes
-         cross at least one co_yield or co_await."
-         style="position:absolute; pointer-events:none; z-index:20;
+         data-speaker-notes="When the compiler encounters a coroutine it
+			     synthesizes it into a state machine typically
+			     called the coroutine frame. We will have to perform
+			     this transformation manually and individually for
+			     each coroutine, as it depends on the coroutine
+			     body."         style="position:absolute; pointer-events:none; z-index:20;
                 border:3px solid #FFD700; border-radius:9px;
                 box-shadow: 0 0 22px rgba(255,215,0,0.45);
                 background: rgba(255,215,0,0.05);">
     </div>
 
-    <!-- Highlight 2 — coroutine_handle subbox -->
     <div class="fragment current-visible" data-fragment-index="2"
+         data-highlight-target="diag-generator-complete"
+         data-highlight-padding="6"
+         data-speaker-notes="The coroutine type (in our example the generator)
+			     is a class that can be used as the return type of a
+			     coroutine. It is typically designed by library
+			     authors."         style="position:absolute; pointer-events:none; z-index:20;
+                border:3px solid #FFD700; border-radius:9px;
+                box-shadow: 0 0 22px rgba(255,215,0,0.45);
+                background: rgba(255,215,0,0.05);">
+    </div>
+
+    <div class="fragment current-visible" data-fragment-index="3"
+         data-highlight-target="diag-promise"
+         data-highlight-padding="6"
+         data-speaker-notes="Each coroutine type needs an associated promise
+			     type. The promise configures and customizes the
+			     beahvior of the compiler-synthesized coroutine. It
+			     for example specifies what happens when a co_yield,
+			     co_await, or co_return is encountered, or how to
+			     deal with exceptions that escape from the coroutine
+			     body."         style="position:absolute; pointer-events:none; z-index:20;
+                border:3px solid #FFD700; border-radius:9px;
+                box-shadow: 0 0 22px rgba(255,215,0,0.45);
+                background: rgba(255,215,0,0.05);">
+    </div>
+    <div class="fragment current-visible" data-fragment-index="4"
+         data-highlight-target="diag-user-interface"
+         data-highlight-padding="6"
+         data-speaker-notes="Typical coroutines also have a user-facing
+	 interface that specifies, how to interact with the coroutine type. For
+	 a generator this would for example be the iterator interface that
+	 allows to treat the generator as an input range over the co_yielded
+	 values." style="position:absolute; pointer-events:none; z-index:20;
+                border:3px solid #FFD700; border-radius:9px;
+                box-shadow: 0 0 22px rgba(255,215,0,0.45);
+                background: rgba(255,215,0,0.05);">
+    </div>
+    <div class="fragment current-visible" data-fragment-index="5"
          data-highlight-target="diag-ch"
          data-highlight-padding="6"
-         data-speaker-notes="The coroutine_handle is a lightweight pointer to the frame.
-         resume() re-enters the coroutine at the last suspension point. destroy() frees
-         the frame without running the body. promise() gives direct access to the promise
-         object inside the frame — this is how the two arrows on this diagram work:
-         coroutine_handle knows the address of the whole frame AND the address of the
-         promise subobject within it."
-         style="position:absolute; pointer-events:none; z-index:20;
-                border:3px solid #00E5CC; border-radius:7px;
-                box-shadow: 0 0 22px rgba(0,229,204,0.4);
-                background: rgba(0,229,204,0.05);">
+         data-speaker-notes="std::coroutine_handle is a standard library type
+			     that can be used to interact with the
+			     compiler-synthesized coroutine frame. It can for
+			     example be used to resume the coroutine starting
+			     from its last suspension point until it suspends
+			     for the next time. Most coroutine types store a
+			     coroutine_handle as a member variable. For example
+			     in a typical generator implementation, the
+			     operator++ of the iterator calls resume on the
+			     coroutine handle to let it resume until the next
+			     value is yielded, or the coroutine completes. The
+			     coroutine handle can additionally access the
+			     promise object which is stored inside the coroutine
+			     frame."         style="position:absolute; pointer-events:none; z-index:20;
+                border:3px solid #FFD700; border-radius:9px;
+                box-shadow: 0 0 22px rgba(255,215,0,0.45);
+                background: rgba(255,215,0,0.05);">
     </div>
-
-    <!-- Highlight 3 — C++20 source code -->
-    <div class="fragment current-visible" data-fragment-index="3"
-         data-highlight-target="diag-code"
+    <div class="fragment current-visible" data-fragment-index="6"
+         data-highlight-target="diag-generator-complete"
          data-highlight-padding="6"
-         data-speaker-notes="This is the only thing the programmer writes. The compiler
-         synthesizes the entire frame layout, the doStepImpl state machine, and the
-         destroySuspendedCoro cleanup table from this compact source. The rest of this
-         talk is about making that synthesis explicit — doing manually what the compiler
-         does automatically."
-         style="position:absolute; pointer-events:none; z-index:20;
-                border:3px solid #7EB8E8; border-radius:8px;
-                box-shadow: 0 0 22px rgba(126,184,232,0.4);
-                background: rgba(126,184,232,0.05);">
+         data-speaker-notes="The good news is, that we can leave the coroutines
+			     almost unchanged when migrating to C++17. We only
+			     have to implement our own coroutine_handle class to
+			     interact with our manually synthesized coroutine
+			     frames, and let the coroutine class use this custom
+			     handle instead of the builtin std::coroutine_handle"         style="position:absolute; pointer-events:none; z-index:20;
+                border:3px solid #FFD700; border-radius:9px;
+                box-shadow: 0 0 22px rgba(255,215,0,0.45);
+                background: rgba(255,215,0,0.05);">
+    </div>
+    <div class="fragment current-visible" data-fragment-index="7"
+         data-highlight-target="diag-frame"
+         data-highlight-padding="6"
+         data-speaker-notes="As already mentioned, the coroutine frame is the
+			     state machine that in C++20 the compiler
+			     automatically synthesizes from the coroutine, and
+			     we will have to synthesize ourselves. It stores a
+			     promise object for the coroutine, the values of the
+			     parameters and local variables from the coroutine
+			     body, to preserve them when the coroutine is
+			     suspended, and a representation of the position in
+			     the coroutine body where the coroutine is currently
+			     suspended. It has member functions to set up,
+			     resume, and destroy the coroutine. The coroutine
+			     frame is by default allocated at the heap, but is
+			     is possible to define a custom allocator via the
+			     promise type."         style="position:absolute; pointer-events:none; z-index:20;
+                border:3px solid #FFD700; border-radius:9px;
+                box-shadow: 0 0 22px rgba(255,215,0,0.45);
+                background: rgba(255,215,0,0.05);">
     </div>
 
     <aside class="notes">
@@ -482,91 +534,126 @@ for (int i : iota(3)) {
   </div>
 </section>
 
-<!-- Slide 4: Coroutine anatomy -->
+<!-- SIMPLE GENERATOR EXAMPLE -->
+<!-- Slide 20: Section title -->
 <section>
-  <h2>Coroutine Anatomy</h2>
-  <div class="two-column">
-    <div>
-      <h4>Two halves</h4>
-      <ul>
-        <li><strong>Ramp</strong> &mdash; allocates frame, constructs promise, calls <code>get_return_object</code>, awaits <code>initial_suspend</code></li>
-        <li><strong>Actor</strong> &mdash; switch/goto state machine, executes body between suspension points</li>
-      </ul>
-      <p style="margin-top:0.5em"><small>Frame lives on the heap &bull; Promise object inside the frame &bull; Each <code>co_yield</code>/<code>co_await</code> = suspension point</small></p>
-    </div>
-    <div>
-      <pre><code class="language-cpp" data-trim data-noescape>
-// C++20 iota generator
+  <h1>Example (a)</h1>
+  <h3>Minimal Generator</h3>
+  <pre><code class="language-cpp" data-trim data-noescape>
 generator&lt;int&gt; iota(int start, int end) {
   while (start &lt; end) {
     co_yield start++;
   }
-}
 
-// Usage
-for (int v : iota(0, 5)) {
-  std::cout &lt;&lt; v &lt;&lt; "\n";
+  Disclaimer:
+  <ul>
+   <li> Everything is slideware </li>
+   <li> Ask if you have questions about ommitted details </li>
+  </ul>
+  <aside class="notes">
+    As a first example for lowering coroutines we will look at this very simple
+    iota-generator. From now on we will have a lot of code on the slides, all of
+    which is grossly simplified. I have programmed everything out s.t. it works
+    in practice, you can access that code on GitHub afterwards if you are
+    interested. If at any point you have questions about the omitted details,
+    please feel free to ask.
+  </aside>
+}
+  </code></pre>
+</section>
+
+<!-- Slide 22+23: Frame layout + doStepImpl() -->
+<section>
+  <h3> Iota generator as state machine </h3>
+  <div style="display: flex; gap: 2em; align-items: flex-start;">
+    <div style="flex: 1;">
+      <pre><code class="language-cpp" data-trim data-noescape
+      data-line-numbers="|1-3|4-5|7-11|13-15|">
+ generator&lt;int&gt; iota(int start, int end) {
+  using promise_type = generator&lt;int&gt;::promise_type;
+  struct CoroFrame : stackless_coro_crtp&lt;CoroFrame, promise_type&gt; {
+    int start_, end_;    // parameters → stored in frame
+    CoroFrame(int s, int e) : start_(s), end_(e) {}
+
+    coroutine_handle&lt;void&gt; actorImpl() {
+      switch (suspendIdx_) {  // Jump table for resumption.
+        case 0: break;        // first entry (after initial_suspend)
+        case 1: goto label_1; // resume after co_yield
+      }
+
+      // After initial_suspend:
+      CO_GET(initial_awaiter_).await_resume();
+      initial_awaiter_.destroy();
+
+      while (start_ &lt; end_) {
+        CO_YIELD(1, initial_awaiter_, (start_++));
+      }
+      CO_RETURN_VOID(2); // implicit co_return
+    }
+    // ... destroy function omitted ...
+  };
+  return generator&lt;int&gt;(CoroFrame::ramp(start, end));
 }
       </code></pre>
     </div>
-  </div>
-</section>
 
-<!-- Slide 5: Promise protocol recap -->
+    <aside class="notes">
+      Here you see the manual state machine for the iota-generator. 
+      [B] A lot of code is actually the same for all coroutine frames, so we can
+      factor it out into a common base class using CRTP.
+      [B] We need to store the function parameters of the coroutine inside the frame, and
+      also require a constructor to initialize them.
+      [B] The actual state machine logic is implemented inside the actorImpl
+      function. We firstly have to check at which suspension point we have to
+      resume our coroutine. Each coroutine has an implicit suspension point at
+      the beginning of the body, and there is an additional suspension point for
+      the single co_yield statement, to which we assign an explicit label.</aside>
+      [B]
+      </aside>
+
+</section>
+    <!-- The co yield and co_await macros -->
 <section>
-  <h2>Promise Protocol Recap</h2>
   <div class="two-column">
     <div>
-      <h4>promise_type</h4>
-      <ul style="font-size:0.8em">
-        <li><code>get_return_object()</code></li>
-        <li><code>initial_suspend()</code></li>
-        <li><code>final_suspend()</code></li>
-        <li><code>yield_value(expr)</code></li>
-        <li><code>return_void()</code> / <code>return_value(v)</code></li>
-        <li><code>unhandled_exception()</code></li>
-      </ul>
-    </div>
-    <div>
-      <h4>Awaitable</h4>
-      <ul style="font-size:0.8em">
-        <li><code>await_ready()</code> &rarr; <code>bool</code></li>
-        <li><code>await_suspend(handle)</code> &rarr; <code>void</code> / <code>bool</code> / <code>handle</code></li>
-        <li><code>await_resume()</code> &rarr; result</li>
-      </ul>
-      <h4 style="margin-top:1em">coroutine_handle</h4>
-      <ul style="font-size:0.8em">
-        <li><code>resume()</code>, <code>destroy()</code>, <code>done()</code></li>
-        <li><code>from_promise(p)</code>, <code>promise()</code></li>
-      </ul>
-    </div>
-  </div>
-</section>
-
-<!-- Slide 6: What the compiler does -->
-<section>
-  <h2>What the Compiler Does</h2>
-  <pre><code class="language-cpp" data-trim data-noescape>
-// RAMP (called once)
-void* frame = operator new(sizeof(CoroFrame));
-auto&amp; promise = frame-&gt;promise;
-auto ret = promise.get_return_object();
-co_await promise.initial_suspend();    // suspension point 0
-// ... return ret to caller ...
-
-// ACTOR (resumed at each suspension point)
-switch (suspend_index) {
-  case 0: goto resume_0;
-  case 1: goto resume_1;
-  // ...
+       <pre><code class="language-cpp" data-trim data-noescape>
+#define CO_AWAIT_IMPL(awaiter, handle) { 
+  if (!awaiter.await_ready()) {
+    using T = decltype(awaiter.await_suspend(handle)) 
+    if constexpr (std::is_void_v&lt;T&gt;) { 
+      awaiter.await_suspend(handle); 
+      return coroutine_handle&lt;void&gt; {}; 
+    } else if constexpr (std::is_same_v&lt;T, bool&gt;) { 
+      if (awaiter.await_suspend(handle)) { 
+	return coroutine_handle&lt;void&gt;{}; 
+      } 
+    } else { 
+      // Symmetric transfer: 
+      // await_suspend returns a handle.
+      return awaiter.await_suspend(handle); 
+    } 
+  } 
 }
-// execute body between suspension points
+  </code> </pre>
+  </div>
 
-// DESTROY (cleanup)
-// destroy locals alive at current suspension point
-// delete frame
-  </code></pre>
-  <p><strong>We will build all of this by hand.</strong></p>
+  <div>
+       <pre><code class="language-cpp" data-trim data-noescape>
+
+#define CO_RESUME(index, awaiterMem, ...)
+  label_##index : 
+  __VA_ARGS__ CO_GET(awaiter).await_resume(); 
+  this-&gt;awaiter.destroy();
+
+#define CO_YIELD(index, awaiterMem, value)
+  CO_INIT(awaiterMem, (promise().yield_value(value)));
+  this-&gt;suspendIdx_ = index;
+  CO_AWAIT_IMPL(CO_GET(awaiterMem));
+  CO_RESUME(index, awaiterMem); 
+</code> </pre>
+
+  </div>
+  </div>
 </section>
 
 <!-- ============================================================ -->
@@ -579,24 +666,6 @@ switch (suspend_index) {
   <p>Handles, frames, storage, macros</p>
 </section>
 
-<!-- Slide 8: HandleFrame -->
-<section>
-  <h2>HandleFrame</h2>
-  <p>Type-erased base &mdash; two function pointers</p>
-  <pre><code class="language-cpp" data-trim data-noescape>
-// A type-erased "base" for a coroutine frame.
-// resumeFunc returns a handle for symmetric transfer trampolining.
-struct HandleFrame {
-  stackless_coroutine_handle&lt;void&gt; (*resumeFunc)(void*);
-  void (*destroyFunc)(void*);
-};
-  </code></pre>
-  <ul>
-    <li><code>resumeFunc</code> returns a handle &rarr; enables <strong>symmetric transfer</strong></li>
-    <li><code>destroyFunc</code> cleans up the frame</li>
-    <li>Both take <code>void*</code> &mdash; type erasure via the frame pointer</li>
-  </ul>
-</section>
 
 <!-- Slide 9: stackless_coroutine_handle<void> -->
 <section>
@@ -1020,170 +1089,6 @@ void destroy() {
 <!-- SECTION 3a: Minimal iota Generator (8 slides + discussion)    -->
 <!-- ============================================================ -->
 
-<!-- Slide 20: Section title -->
-<section>
-  <h1>Example (a)</h1>
-  <h3>Minimal Generator</h3>
-</section>
-
-<!-- Slide 21: C++20 version -->
-<section>
-  <h2>iota &mdash; C++20</h2>
-  <pre><code class="language-cpp" data-trim data-noescape>
-generator&lt;int&gt; iota(int start, int end) {
-  while (start &lt; end) {
-    co_yield start++;
-  }
-}
-  </code></pre>
-</section>
-
-<!-- Slide 22+23: Frame layout + doStepImpl() -->
-<section>
-  <h2>iota &mdash; Frame Layout &amp; doStepImpl()</h2>
-  <div style="display: flex; gap: 2em; align-items: flex-start;">
-    <div style="flex: 1;">
-      <pre><code class="language-cpp" data-trim data-noescape>
-auto iota_unified(int start, int end) {
-  using promise_type = generator&lt;int&gt;::promise_type;
-
-  struct CoroFrame : stackless_coro_crtp&lt;CoroFrame, promise_type&gt; {
-    int start_;    // parameter → stored in frame
-    int end_;      // parameter → stored in frame
-
-    CoroFrame(int s, int e) : start_(s), end_(e) {}
-
-    coroutine_handle&lt;void&gt; doStepImpl() {
-      // Jump table: resume at the right suspension point
-      switch (suspendIdx_) {
-      case 0: break;          // first entry (after initial_suspend)
-      case 1: goto label_1;   // resume after co_yield
-    }
-
-    // After initial_suspend:
-      CO_GET(initial_awaiter_).await_resume();
-  initial_awaiter_.destroy();
-
-  while (start_ &lt; end_) {
-    CO_YIELD(1, initial_awaiter_, (start_));
-    ++start_;
-  }
-
-  // implicit co_return
-  CO_RETURN_VOID(2, final_awaiter_);
-}
-    // ... doStepImpl, destroySuspendedCoro ...
-  };
-
-  return generator&lt;int&gt;(CoroFrame::ramp(start, end));
-}
-      </code></pre>
-    </div>
-    <div style="flex: 1;">
-      <pre><code class="language-cpp" data-trim data-noescape>
-coroutine_handle&lt;void&gt; doStepImpl() {
-  // Jump table: resume at the right suspension point
-  switch (suspendIdx_) {
-    case 0: break;          // first entry (after initial_suspend)
-    case 1: goto label_1;   // resume after co_yield
-  }
-
-  // After initial_suspend:
-  CO_GET(initial_awaiter_).await_resume();
-  initial_awaiter_.destroy();
-
-  while (start_ &lt; end_) {
-    CO_YIELD(1, initial_awaiter_, (start_));
-    ++start_;
-  }
-
-  // implicit co_return
-  CO_RETURN_VOID(2, final_awaiter_);
-}
-      </code></pre>
-    </div>
-  </div>
-</section>
-
-<!-- Slide 25: destroySuspendedCoro() -->
-<section>
-  <h2>iota &mdash; destroySuspendedCoro()</h2>
-  <pre><code class="language-cpp" data-trim data-noescape>
-void destroySuspendedCoro() {
-  switch (suspendIdx_) {
-    case 0:
-      // Suspended at initial_suspend
-      initial_awaiter_.destroy();
-      return;
-    case 1:
-      // Suspended at co_yield (mid-loop)
-      initial_awaiter_.destroy();
-      return;
-    case 2:
-      // At co_return — no local variables to destroy
-      return;
-  }
-}
-  </code></pre>
-  <ul>
-    <li>Each case corresponds to a suspension point</li>
-    <li>Lists exactly which objects are alive and need destruction</li>
-    <li>The compiler generates equivalent tables internally</li>
-  </ul>
-</section>
-
-<!-- Slide 26: Putting it together -->
-<section>
-  <h2>iota &mdash; Putting It Together</h2>
-  <pre><code class="language-cpp" data-trim data-noescape>
-auto iota_unified(int start, int end) {
-  // ... CoroFrame definition ...
-
-  return CoroFrame::ramp(start, end);
-  // ramp() does:
-  //   1. new CoroFrame(start, end)
-  //   2. promise.get_return_object() → heap_generator&lt;int&gt;
-  //   3. co_await promise.initial_suspend()
-  //   4. return the generator to the caller
-}
-
-// Usage — identical to C++20:
-for (int v : iota_unified(0, 5)) {
-  std::cout &lt;&lt; v &lt;&lt; "\n";
-}
-  </code></pre>
-</section>
-
-<!-- Slide 27: Summary -->
-<section>
-  <h2>iota &mdash; Summary</h2>
-  <div class="two-column">
-    <div>
-      <h4>What changed vs C++20</h4>
-      <ul>
-        <li>Coroutine <strong>body</strong> is rewritten as a state machine</li>
-        <li>Parameters become frame members</li>
-        <li>Added <code>destroySuspendedCoro()</code></li>
-      </ul>
-    </div>
-    <div>
-      <h4>What stayed the same</h4>
-      <ul>
-        <li>Promise type &mdash; identical</li>
-        <li>Generator type &mdash; identical</li>
-        <li>Awaitable protocol &mdash; identical</li>
-        <li>Caller code &mdash; identical</li>
-      </ul>
-    </div>
-  </div>
-  <p style="margin-top:1em"><strong>The body transformation is the only difference.</strong></p>
-</section>
-
-<!-- Slide 28: Discussion -->
-<section>
-  <h2>Discussion</h2>
-  <h3>The simple case &mdash; questions?</h3>
-</section>
 
 <!-- ============================================================ -->
 <!-- SECTION 3b: Generator with Local Variables (7 slides + disc)   -->
