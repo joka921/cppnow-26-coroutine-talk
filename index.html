@@ -825,7 +825,7 @@ inline void detail::stackless_handle_base::resume() {
 </section>
 
 <!-- Slide 12: SuspendAlways / SuspendNever -->
-<section>
+<section data-visibility="hidden">
   <h2>SuspendAlways / SuspendNever</h2>
   <pre><code class="language-cpp" data-trim data-noescape>
 struct SuspendAlways {
@@ -847,54 +847,6 @@ struct SuspendNever {
 };
   </code></pre>
   <p><small>Templated <code>await_suspend</code> &mdash; works with our custom handle types</small></p>
-</section>
-
-<!-- Slide 13: coro_storage -->
-<section>
-  <p>Storing local variables across suspension points</p>
-  <pre><code class="language-cpp" data-trim data-noescape>
-template &lt;typename Ref, bool isOwning&gt;
-struct coro_storage {
-  // Owning: stores decay_t&lt;Ref&gt; by value
-  // Non-owning: stores a pointer
-  using Storage = std::conditional_t&lt;isOwning,
-      std::decay_t&lt;Ref&gt;,
-      std::add_pointer_t&lt;std::decay_t&lt;Ref&gt;&gt;&gt;;
-
-  alignas(Storage) char buffer[sizeof(Storage)];
-
-  struct Proxy { Ref ref_; };
-
-  Proxy get() noexcept {
-    Storage&amp; s = *std::launder(reinterpret_cast&lt;Storage*&gt;(buffer));
-    if constexpr (isOwning) return s;
-    else return *s;
-  }
-
-  void destroy() noexcept(...) {
-    std::launder(reinterpret_cast&lt;Storage*&gt;(buffer))-&gt;~Storage();
-  }
-
-  // Emplacement via placement new (encapsulated in a macro).
-};
-  </code></pre>
-
-  <aside class="notes">
-    To store local variables from the coroutine body in the frame, we use a
-    suitably aligned uninitialized buffer, that is typed on the reference type
-    of the variable, and the information on whether the variable actually owns
-    and stores an object, which is the case for object-type variables, but also
-    for reference variables that extend the lifetime of temporaries. We then use
-    placement new and explicit destructor calls to manage the lifetime of the
-    objects. I now again have two questions for you: Why does the get function
-    which we use to access the stored value with the correct reference semantics
-    return a proxy object instead of directly the reference? And why don't we
-    have construct or emplace function, but use a macro for construction?
-  </aside>
-</section>
-<section>
-  TODO Slide with answers, 1. because of rvalue reference semantics (don't
-  std::move)), 2. because of copy elision.
 </section>
 
 <!-- Slide 14: CRTP base layout -->
@@ -1065,7 +1017,7 @@ void destroy() {
 </section>
 
 <!-- Slide 18: Macro reference -->
-<section>
+<section data-visibility="hidden">
   <h2>Macro Reference</h2>
   <pre><code class="language-cpp" data-trim data-noescape>
 // Access stored value
@@ -1224,6 +1176,54 @@ void destroySuspendedCoro() {
   </div>
 </section>
 
+<!-- Slide 13: coro_storage -->
+<section>
+  <p>Storing local variables across suspension points</p>
+  <pre><code class="language-cpp" data-trim data-noescape>
+template &lt;typename Ref, bool isOwning&gt;
+struct coro_storage {
+  // Owning: stores decay_t&lt;Ref&gt; by value
+  // Non-owning: stores a pointer
+  using Storage = std::conditional_t&lt;isOwning,
+      std::decay_t&lt;Ref&gt;,
+      std::add_pointer_t&lt;std::decay_t&lt;Ref&gt;&gt;&gt;;
+
+  alignas(Storage) char buffer[sizeof(Storage)];
+
+  struct Proxy { Ref ref_; };
+
+  Proxy get() noexcept {
+    Storage&amp; s = *std::launder(reinterpret_cast&lt;Storage*&gt;(buffer));
+    if constexpr (isOwning) return s;
+    else return *s;
+  }
+
+  void destroy() noexcept(...) {
+    std::launder(reinterpret_cast&lt;Storage*&gt;(buffer))-&gt;~Storage();
+  }
+
+  // Emplacement via placement new (encapsulated in a macro).
+};
+  </code></pre>
+
+  <aside class="notes">
+    To store local variables from the coroutine body in the frame, we use a
+    suitably aligned uninitialized buffer, that is typed on the reference type
+    of the variable, and the information on whether the variable actually owns
+    and stores an object, which is the case for object-type variables, but also
+    for reference variables that extend the lifetime of temporaries. We then use
+    placement new and explicit destructor calls to manage the lifetime of the
+    objects. I now again have two questions for you: Why does the get function
+    which we use to access the stored value with the correct reference semantics
+    return a proxy object instead of directly the reference? And why don't we
+    have construct or emplace function, but use a macro for construction?
+  </aside>
+</section>
+<section>
+  TODO Slide with answers, 1. because of rvalue reference semantics (don't
+  std::move)), 2. because of copy elision.
+</section>
+
 <!-- Slide 34: Key takeaway -->
 <section>
   <h2>coro_storage Design</h2>
@@ -1253,13 +1253,13 @@ void destroySuspendedCoro() {
 <!-- ============================================================ -->
 
 <!-- Slide 37: Section title -->
-<section>
+<section data-visibility="hidden">
   <h1>Example (c)</h1>
   <h3>Task with Symmetric Transfer</h3>
 </section>
 
 <!-- Slide 38: What is symmetric transfer? -->
-<section>
+<section data-visibility="hidden">
   <h2>What Is Symmetric Transfer?</h2>
   <div class="two-column">
     <div>
@@ -1284,7 +1284,7 @@ void destroySuspendedCoro() {
 </section>
 
 <!-- Slide 39: task_promise -->
-<section>
+<section data-visibility="hidden">
   <h2>task_promise</h2>
   <pre><code class="language-cpp" data-trim data-noescape>
 template &lt;typename T, template &lt;typename...&gt; typename TaskHandle&gt;
@@ -1316,7 +1316,7 @@ private:
 </section>
 
 <!-- Slide 40: task_final_awaiter -->
-<section>
+<section data-visibility="hidden">
   <h2>task_final_awaiter</h2>
   <pre><code class="language-cpp" data-trim data-noescape>
 template &lt;template &lt;typename...&gt; typename TaskHandle&gt;
@@ -1342,7 +1342,7 @@ struct task_final_awaiter {
 </section>
 
 <!-- Slide 41: task_awaiter -->
-<section>
+<section data-visibility="hidden">
   <h2>task_awaiter</h2>
   <pre><code class="language-cpp" data-trim data-noescape>
 template &lt;typename T, template &lt;typename...&gt; typename TaskHandle&gt;
@@ -1373,7 +1373,7 @@ private:
 </section>
 
 <!-- Slide 42: compute_value: C++20 vs hand-lowered -->
-<section>
+<section data-visibility="hidden">
   <h2>compute_value &mdash; Simple co_return</h2>
   <div class="two-column">
     <div>
@@ -1410,7 +1410,7 @@ return CoroFrame::ramp(x);
 </section>
 
 <!-- Slide 43: add_values: C++20 version -->
-<section>
+<section data-visibility="hidden">
   <h2>add_values &mdash; C++20</h2>
   <pre><code class="language-cpp" data-trim data-noescape>
 task&lt;size_t&gt; add_values(size_t a, size_t b) {
@@ -1423,7 +1423,7 @@ task&lt;size_t&gt; add_values(size_t a, size_t b) {
 </section>
 
 <!-- Slide 44: add_values: frame layout -->
-<section>
+<section data-visibility="hidden">
   <h2>add_values &mdash; Frame Layout</h2>
   <pre><code class="language-cpp" data-trim data-noescape>
 struct CoroFrame
@@ -1448,7 +1448,7 @@ struct CoroFrame
 </section>
 
 <!-- Slide 45: add_values: doStepImpl() -->
-<section>
+<section data-visibility="hidden">
   <h2>add_values &mdash; doStepImpl()</h2>
   <pre class="small-code"><code class="language-cpp" data-trim data-noescape>
 coroutine_handle&lt;void&gt; doStepImpl() {
@@ -1483,7 +1483,7 @@ coroutine_handle&lt;void&gt; doStepImpl() {
 </section>
 
 <!-- Slide 46: Symmetric transfer flow diagram -->
-<section>
+<section data-visibility="hidden">
   <h2>Symmetric Transfer Flow</h2>
   <pre style="font-size:0.7em; text-align:center">
   caller
@@ -1513,7 +1513,7 @@ coroutine_handle&lt;void&gt; doStepImpl() {
 </section>
 
 <!-- Slide 47: Discussion -->
-<section>
+<section data-visibility="hidden">
   <h2>Discussion</h2>
   <h3>Symmetric transfer &mdash; questions?</h3>
 </section>
