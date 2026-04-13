@@ -652,23 +652,25 @@ generator&lt;int&gt; iota(int start, int end) {
     <!-- The co yield and co_await macros -->
 <section>
   <!--
-    STEPPING ORDER: CO_YIELD (step 1) → CO_RESUME (step 2) → CO_AWAIT_IMPL (step 3).
-    Each macro's wrapper div is a fragment; data-fragment-index controls the order.
-    Speaker notes are on the wrapper divs (picked up by the custom fragmentshown JS).
+    STEPPING ORDER: CO_YIELD → CO_RETURN_VOID → CO_AWAIT_IMPL.
+    Each macro appears as a fragment, then its line highlights step through
+    before the next macro appears.
 
-    LINE-BY-LINE SUB-STEPS:
-      To drill into individual lines of a macro, add | separators to its
-      data-line-numbers attribute.  Example for CO_YIELD:
-        data-line-numbers="1-6|1|2-3|4|5-6"
-      The first range (1-6) is the "whole macro highlighted" state shown when
-      the fragment first activates.  Each subsequent range is one more click.
+    FRAGMENT INDEX ACCOUNTING:
+      Two separate fragment systems must be kept in sync:
+        A) The wrapper <div class="fragment" data-fragment-index="N"> controls
+           visibility (when the code block appears).
+        B) The <code data-fragment-index="N+1"> tells the highlight plugin
+           where to start its first line step.  Without this, the plugin
+           auto-assigns ALL line steps after ALL visibility fragments.
 
-      IMPORTANT — fragment index accounting:
-        Each extra | segment in a macro's data-line-numbers consumes one
-        additional fragment index.  If you add N sub-steps to CO_YIELD,
-        increase CO_RESUME's data-fragment-index from 2 to (2+N), and
-        CO_AWAIT_IMPL's from 3 to (3+N).  If you then add M sub-steps to
-        CO_RESUME, increase CO_AWAIT_IMPL's index by M as well.
+      Current values:
+        CO_YIELD       wrapper=1  code=2   "|2|3-5|6|7-8|" = 5 pipes → steps 2-6
+        CO_RETURN_VOID wrapper=7  code=8   "|"              = 1 pipe  → step  8
+        CO_AWAIT_IMPL  wrapper=9  code=10  "|2-3|4-6|7-10|11-15" = 4 pipes → steps 10-13
+
+      If you change the number of | in any macro, recount from that macro
+      forward: next_wrapper = prev_code + prev_pipes.
   -->
   <h3> Macro Definitions (simplified)</h3>
   <div class="two-column">
@@ -680,7 +682,7 @@ generator&lt;int&gt; iota(int start, int end) {
            suspension index, invokes CO_AWAIT_IMPL to possibly suspend, then
            falls through to CO_RESUME to clean up after the coroutine is resumed.">
         <pre><code class="language-cpp" data-trim data-noescape
-             data-line-numbers="|2|3-5|6|7-8|">
+             data-line-numbers="|2|3-5|6|7-8|" data-fragment-index="2">
 #define CO_YIELD(index, awaiterMem, value) 
   suspendIdx_ = index; 
   CO_INIT(awaiterMem, 
@@ -691,10 +693,10 @@ generator&lt;int&gt; iota(int start, int end) {
   awaiterMem.destroy();
         </code></pre>
       </div>
-      <div class="fragment" data-fragment-index="3"
+      <div class="fragment" data-fragment-index="7"
 			    data-speaker-notes="">
         <pre><code class="language-cpp" data-trim data-noescape
-             data-line-numbers="|">
+             data-line-numbers="|" data-fragment-index="8">
 #define CO_RETURN_VOID(finalAwaiterMem, ...) 
   this-&gt;setDone(); 
   DESTROY_UNCONDITIONALLY(__VA_ARGS__) 
@@ -709,7 +711,7 @@ generator&lt;int&gt; iota(int start, int end) {
 
     <!-- Left: CO_AWAIT_IMPL  (step 3 — shown last) -->
     <div style="flex: 4">
-      <div class="fragment" data-fragment-index="4"
+      <div class="fragment" data-fragment-index="9"
            data-speaker-notes="CO_AWAIT_IMPL implements the full await protocol.
            It checks await_ready first. If suspension is needed it calls
            await_suspend, whose return type determines behaviour: void means
@@ -717,7 +719,7 @@ generator&lt;int&gt; iota(int start, int end) {
            coroutine_handle means symmetric transfer — hand control directly
            to the returned coroutine without going through the trampoline.">
         <pre><code class="language-cpp" data-trim data-noescape
-             data-line-numbers="|2-3|4-6|7-10|11-15">
+             data-line-numbers="|2-3|4-6|7-10|11-15" data-fragment-index="10">
 #define CO_AWAIT_IMPL(awaiter) {
   if (!awaiter.await_ready()) {
     using T = decltype(awaiter.await_suspend(getHandle());
@@ -751,13 +753,13 @@ generator&lt;int&gt; iota(int start, int end) {
 <!-- Slide 7: Section title -->
 <section>
   <h1>Building the Infrastructure</h1>
-  <p>Handles, frames, storage, macros</p>
+  <p>coroutine_handle and frame base class (CRTP)<p>
 </section>
 
 
 <!-- Slide 9: stackless_coroutine_handle<void> -->
 <section>
-  <h3>the coroutine handle</h3>
+  <h3>coroutine_handle (1/2)</h3>
   <pre><code class="language-cpp" data-trim data-noescape
   data-line-numbers=|1-11|15-18|6,16|>
 // Forward declaration.
@@ -769,16 +771,18 @@ struct HandleFrame {
   void (*destroyFunc)(void*);
 };
 
-struct stackless_handle_base {
+template&lt;typename Promise&gt;
+struct coroutine_handle {
   HandleFrame* ptr;
 
-  stackless_handle_base() noexcept : ptr(nullptr) {}
-  stackless_handle_base(HandleFrame* ptr) noexcept : ptr(ptr) {}
+  coroutine_handle() noexcept : ptr(nullptr) {}
+  coroutine_handle(HandleFrame* ptr) noexcept : ptr(ptr) {}
 
   void resume();  // trampoline — defined later
   void destroy() { ptr-&gt;destroyFunc(reinterpret_cast&lt;void*&gt;(ptr)); }
   operator bool() const { return static_cast&lt;bool&gt;(ptr); }
   bool done() const { return ptr-&gt;resumeFunc == nullptr; }
+  // ... (see next slide)
 };
 
   </code></pre>
@@ -804,34 +808,30 @@ struct stackless_handle_base {
 
 <!-- Slide 10: stackless_coroutine_handle<Promise> -->
 <section>
-  <h3>stackless_coroutine_handle</h3>
+  <h3>coroutine_handle (2/2)</h3>
   <pre><code class="language-cpp" data-trim data-noescape
   data-line-numbers="|6-20|22-25|">
 template &lt;typename Promise&gt;
-struct stackless_coroutine_handle
-    : public detail::stackless_handle_base {
-  using stackless_handle_base::stackless_handle_base;
+struct coroutine_handle {
+  // ... (functions from previous slide)
+
+  // Only if Promise is not void:
 
   // Promise lives right after HandleFrame in the coroutine frame
   static constexpr size_t promise_offset =
       (sizeof(HandleFrame) + alignof(Promise) - 1)
       &amp; ~(alignof(Promise) - 1);
 
-  static stackless_coroutine_handle from_promise(Promise&amp; p) {
+  static coroutine_handle from_promise(Promise&amp; p) {
     auto* ptr = reinterpret_cast&lt;HandleFrame*&gt;(
         reinterpret_cast&lt;char*&gt;(&amp;p) - promise_offset);
-    return stackless_coroutine_handle{ptr};
+    return coroutine_handle{ptr};
   }
 
   Promise&amp; promise() {
     return *reinterpret_cast&lt;Promise*&gt;(
         reinterpret_cast&lt;char*&gt;(ptr) + promise_offset);
   }
-};
-template &lt;&gt;
-struct stackless_coroutine_handle&lt;void&gt;
-    : public stackless_handle_base {
-  using stackless_handle_base::stackless_handle_base;
 };
   </code></pre>
   <aside class="notes">
@@ -846,13 +846,13 @@ struct stackless_coroutine_handle&lt;void&gt;
   </aside>
 </section>
 
-<!-- Slide 11: Trampoline (symmetric transfer) -->
+<!-- Slide 11: coroutine_handle::resume (symmetric transfer) -->
 <section>
-  <h3>Trampoline (Symmetric Transfer)</h3>
+  <h3>coroutine_handle::resume (Symmetric Transfer)</h3>
   <pre><code class="language-cpp" data-trim data-noescape>
-// After stackless_coroutine_handle&lt;void&gt; is complete:
-inline void detail::stackless_handle_base::resume() {
-  stackless_coroutine_handle&lt;void&gt; next =
+template&lt;typename P&gt;
+void coroutine_handle&lt;P&gt;::resume() {
+  coroutine_handle&lt;void&gt; next =
       ptr-&gt;resumeFunc(reinterpret_cast&lt;void*&gt;(ptr));
   while (next.ptr) {
     next = next.ptr-&gt;resumeFunc(
@@ -860,7 +860,8 @@ inline void detail::stackless_handle_base::resume() {
   }
 }
   </code></pre>
-  TODO: Blogpost lewis baker link.
+  Details on symmetric transfer: <a
+				     href=https://lewissbaker.github.io/2020/05/11/understanding_symmetric_transfer>https://lewissbaker.github.io/2020/05/11/understanding_symmetric_transfer</a>
   <aside class="notes">
     The last thing missing for our custom coroutine handles is the resume
     function which also supports symmetric transfer. As a reminder: When a
