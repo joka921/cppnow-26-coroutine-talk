@@ -20,11 +20,8 @@
 <!-- ============================================================ -->
 
 <!-- Slide 1: Title -->
-<section>
-  <h1 style="font-size:1.8em">No Compiler Required</h1>
-  <h3>Hand-Rolling C++20 Coroutines in C++17</h3>
-  <p><small>Johannes Kalmbach &mdash; C++Now 2026</small></p>
-
+<section data-background-image="TitlePicture.png" data-background-size="contain" data-background-color="#000000"
+         data-state="hide-slide-number">
   <aside class="notes">
     Good afternoon everybody. My name is Johannes Kalmbach and I am going to
     talk about how to hand roll C++20 coroutines in pure C++17.
@@ -57,28 +54,51 @@ TODO PDF download link + livestream server.
 </section>
 
 <section>
+  <!-- QLeverize logo: in-flow at top, centered. Fragment 2 — invisible but
+       reserves space until the QLeverize bullet is reached. -->
+  <div class="fragment" data-fragment-index="2"
+       style="text-align:center; height:90px; line-height:90px;
+       margin-bottom:1.0em;">
+    <img src="qleverize.svg" style="height:80px; width:auto; vertical-align:middle;">
+  </div>
+
   <h3> About me </h3>
-  <ul>
+
+  <!-- Portrait: absolutely positioned top-right (clear of the logo strip above) -->
+  <img src="portrait-jk.jpg"
+       style="position:absolute; top:100px; right:40px; width:190px; border-radius:8px;">
+
+  <ul style="max-width:1150px;">
     <li> C++ programmer for ca. 10 years</li>
-    <li class="fragment" data-speaker-notes="I am currently researching and being employed at the University of
+    <li class="fragment" data-fragment-index="0"
+        data-speaker-notes="I am currently researching and being employed at the University of
     Freiburg in southern Germany, where I will (hopefully) finish my PhD this
     year. "> Last year of PhD program in Freiburg/Germany </li>
-    <li class="fragment" data-speaker-notes="The core of my work is QLever, a highly scalable RDF/SPARQL graph
+    <li class="fragment" data-fragment-index="1"
+        data-speaker-notes="The core of my work is QLever, a highly scalable RDF/SPARQL graph
     database that can deal with hundreds of billions of statements on a single
     commodity PC. If you have an interest in knowledge graphs, semantic web
     technologies, and data management in general, please come talk to me in the
     hallway.">
  I develop QLever, a highly scalable RDF/SPARQL graph database </li>
-    <li class="fragment" data-speaker-notes="We recently also founded a company called qleverize which offers
+    <li class="fragment" data-fragment-index="2"
+        data-speaker-notes="We recently also founded a company called qleverize which offers
 	       commercial support and extensions for our open-source database.">
  Cofounder of QLeverize (qleverize.com) where we commercialize QLever
     </li>
-
   </ul>
+
+  <!-- Uni logo: in-flow at bottom, centered. Fragment 0 — invisible but
+       reserves space from the start so the list doesn't shift downward. -->
+  <div class="fragment" data-fragment-index="0"
+       style="text-align:center; margin-top:0.4em;">
+    <img src="unilogo.svg" style="height:220px; width:auto;">
+  </div>
+
   <aside class="notes">
     If you don't know me yet, I have been a C++ programmer for about 10 years,
     and last year I gave my first talk at a C++ conference.
-      </aside>
+  </aside>
 </section>
 
 <section>
@@ -121,30 +141,52 @@ TODO PDF download link + livestream server.
 
 <section>
   <h3> Migrating coroutines </h3>
-  <ul>
-  <li class="fragment" data-speaker-notes="Most of our coroutines were generators. In
-	     production we migrated them by using an extended fork of Eric
-	     Niebler's range-v3 library and custom state-machine-like rewrites"> Production solution: manual rewrite to ranges/state machines. </li>
-  <ul> <li class="fragment" data-speaker-notes="In the meantime,
-		  this migration effort has been completed, and I as the
-		  maintainer have mixed feelings about the migrated code and the
-		  way it was created. On the one hand the rewritten code is
-		  often longer and less readable than the original coroutines,
-		  as it contains some infrastructure that the coroutines would
-		  have hidden.">Code less readable</li>
-    <li class="fragment" data-speaker-notes="In particular, the initially proposed code
-	       introduced several subtle lifetime issues (which have in the
-	       meantime all be mitigated). The systemic reason behind this was
-	       that to rewrite a coroutine you need to be familiar with the coroutine
-	       semantics, which the external developers were not, as they mainly
-	       work on C++17 codebases.">  Subtle lifetime issues</li>
-  </ul>
-  <li class="fragment" data-speaker-notes="Thus, when reflecting on the finished
-	     migration, I wondered if there was an alterative way to migrate
-	     coroutines, in particular a more generic way that could even be run
-	     automatically. This lead me down a deep rabbit hole, and I now want
-	     to share with you, what I found there."> Is there a better way </li>
-  </ul>
+  <div class="two-column">
+    <div>
+      <ul>
+        <li class="fragment" data-fragment-index="0"
+            data-speaker-notes="Most of our coroutines were generators. In
+            production we migrated them by using an extended fork of Eric
+            Niebler's range-v3 library and custom state-machine-like rewrites">
+          Production solution: manual rewrite to ranges/state machines.
+        </li>
+        <ul>
+          <li class="fragment" data-fragment-index="1"
+              data-speaker-notes="In the meantime,
+              this migration effort has been completed, and I as the
+              maintainer have mixed feelings about the migrated code and the
+              way it was created. On the one hand the rewritten code is
+              often longer and less readable than the original coroutines,
+              as it contains some infrastructure that the coroutines would
+              have hidden.">Code less readable</li>
+          <li class="fragment" data-fragment-index="2"
+              data-speaker-notes="In particular, the initially proposed code
+              introduced several subtle lifetime issues (which have in the
+              meantime all be mitigated). The systemic reason behind this was
+              that to rewrite a coroutine you need to be familiar with the coroutine
+              semantics, which the external developers were not, as they mainly
+              work on C++17 codebases.">Subtle lifetime issues</li>
+        </ul>
+        <li class="fragment" data-fragment-index="3"
+            data-speaker-notes="Thus, when reflecting on the finished
+            migration, I wondered if there was an alterative way to migrate
+            coroutines, in particular a more generic way that could even be run
+            automatically. This lead me down a deep rabbit hole, and I now want
+            to share with you, what I found there."> Is there a better way </li>
+      </ul>
+    </div>
+    <div class="fragment" data-fragment-index="0">
+      <pre><code class="language-cpp" data-trim data-noescape>
+struct SomeStringGenerator 
+      : InputRangeFromGet&lt;string&gt; {
+  std::optional&lt;string&gt; get() override {
+    // Compute the next value, return `nullopt`
+    // if done.
+  }
+};
+      </code></pre>
+    </div>
+  </div>
   <aside class="notes"></aside>
 </section>
 
@@ -2037,6 +2079,7 @@ struct generator_promise {
     <script>
       Reveal.initialize({
         hash: true,
+        controls: false,
         slideNumber: true,
         transition: 'slide',
         width: 1600,

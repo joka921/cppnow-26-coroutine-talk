@@ -75,3 +75,8 @@
 .reveal section ul ul {
   font-size: 0.9em;
 }
+
+/* Hide slide number on title slide (data-state="hide-slide-number") */
+html.hide-slide-number .reveal .slide-number {
+  display: none !important;
+}
