@@ -554,7 +554,6 @@ generator&lt;int&gt; iota(int start, int end) {
   using promise_type = generator&lt;int&gt;::promise_type;
   struct CoroFrame : stackless_coro_crtp&lt;CoroFrame, promise_type&gt; {
     int start_, end_;    // parameters → stored in frame
-    CoroFrame(int s, int e) : start_(s), end_(e) {}
 
     coroutine_handle&lt;void&gt; actorImpl() {
       switch (suspendIdx_) {  // Jump table for resumption.
@@ -565,7 +564,7 @@ generator&lt;int&gt; iota(int start, int end) {
       while (start_ &lt; end_) {
         CO_YIELD(1, initial_awaiter_, (start_++));
       }
-      CO_RETURN_VOID(); // implicit co_return
+      CO_RETURN_VOID(2); // implicit co_return
     }
     // ... destroy function omitted ...
   };
@@ -1037,7 +1036,7 @@ void destroy() {
   // &rarr; await &rarr; label &rarr; result = await_resume
 
 // co_return
-#define CO_RETURN_VOID(index, finalAwaiterMem)
+#define CO_RETURN_VOID(index)
   // return_void &rarr; destroySuspendedCoro &rarr; setDone
   // &rarr; final_suspend &rarr; await final awaiter
 
@@ -1048,34 +1047,14 @@ void destroy() {
 
 <!-- Slide 19: Discussion -->
 <section>
-  <h2>Discussion</h2>
-  <h3>Questions on the infrastructure?</h3>
-  <div class="two-column">
-    <div>
-      <h4>What we built</h4>
-      <ul>
-        <li>HandleFrame &mdash; type-erased vtable</li>
-        <li>coroutine_handle &mdash; pointer to frame</li>
-        <li>Trampoline &mdash; flat symmetric transfer</li>
-        <li>coro_storage &mdash; local variable lifetime</li>
-        <li>CRTP base &mdash; ramp/actor/destroy</li>
-      </ul>
-    </div>
-    <div>
-      <h4>What's left for each coroutine</h4>
-      <ul>
-        <li><code>doStepImpl()</code> &mdash; the state machine</li>
-        <li><code>destroySuspendedCoro()</code> &mdash; cleanup table</li>
-        <li>Frame members &mdash; parameters + locals</li>
-      </ul>
-    </div>
-  </div>
+  <h2>What is still missing</h2>
+
+  <ul>
+    <li> Local variables in the coroutine body. </li>
+    <li> Exception handling </li>
+    <li> Subleties when yielding/awaiting complex expressions.
+  </ul>
 </section>
-
-<!-- ============================================================ -->
-<!-- SECTION 3a: Minimal iota Generator (8 slides + discussion)    -->
-<!-- ============================================================ -->
-
 
 <!-- ============================================================ -->
 <!-- SECTION 3b: Generator with Local Variables (7 slides + disc)   -->
@@ -1137,9 +1116,6 @@ stackless_coroutine_handle&lt;void&gt; doStepImpl() {
     case 1: goto label_1;
   }
 
-  CO_GET(initial_awaiter_).await_resume();
-  initial_awaiter_.destroy();
-
   CO_INIT(it_,  (rangeOfStrings_.begin()));
   CO_INIT(end_, (rangeOfStrings_.end()));
 
@@ -1149,7 +1125,7 @@ stackless_coroutine_handle&lt;void&gt; doStepImpl() {
     tmp_.destroy();                            // destroy after resume
   }
 
-  CO_RETURN_VOID(2, final_awaiter_);
+  CO_RETURN_VOID(2);
 }
       </code></pre>
     </div>
@@ -1390,15 +1366,11 @@ task&lt;size_t&gt; compute_value(size_t x) {
 struct CoroFrame : stackless_coro_crtp&lt;
     CoroFrame, promise_type, true&gt; {
   size_t x_;
-  CoroFrame(size_t x) : x_(x) {}
 
   auto doStepImpl() {
     switch (this-&gt;suspendIdx_) {
       case 0: break;
     }
-    CO_GET(initial_awaiter_)
-        .await_resume();
-    this-&gt;initial_awaiter_.destroy();
     CO_RETURN_VALUE(1, final_awaiter_,
         (this-&gt;x_ * 2));
   }
@@ -1438,7 +1410,6 @@ struct CoroFrame
       size_t;&amp;, true&gT;
       awaiter_storage_;
 
-  CoroFrame(size_t a, size_t b) : a_(a), b_(b) {}
 };
   </code></pre>
   <ul>
@@ -1457,9 +1428,6 @@ coroutine_handle&lt;void&gt; doStepImpl() {
     case 1: goto label_1;
     case 2: goto label_2;
   }
-
-  CO_GET(initial_awaiter_).await_resume();
-  initial_awaiter_.destroy();
 
   res_ = 0;
   while (a_ &lt; b_) {
@@ -1528,17 +1496,15 @@ coroutine_handle&lt;void&gt; doStepImpl() {
   <div style="display: flex; gap: 2em; align-items: flex-start;">
     <div style="flex: 1;">
       <pre><code class="language-cpp" data-trim data-noescape>
-generator&lt;int&gt; throwing_parse_ints(
-    auto&amp;&amp; strings, bool catch_errors) {
+generator&lt;int&gt; parse_ints(
+    generator&lt;string&gt; strings, bool catch_errors) {
   for (const auto&amp; s : strings) {
     try {
       co_yield std::stoi(s);
     } catch (const std::invalid_argument&amp;) {
       if (!catch_errors) throw;
-    } catch (const std::out_of_range&amp;) {
-      if (!catch_errors) throw;
       break;
-    }
+    }  
   }
 }
       </code></pre>
@@ -1585,14 +1551,12 @@ generator&lt;int&gt; throwing_parse_ints(
   <h2>Frame &mdash; Construction Tracking</h2>
   <pre><code class="language-cpp" data-trim data-noescape>
 struct CoroFrame: coro_crtp&lt;CoroFrame, promise_type&gt; {
-  RangeOfStrings&amp;&amp; strings_;
+  using G = generator&lt;string&gt; 
+  G strings_;
   bool catch_errors_;
 
-  using It  = std::remove_cvref_t&lt;decltype(rangeOfStrings_.begin())&gt;;
-  using End = std::remove_cvref_t&lt;decltype(rangeOfStrings_.end()));&gt;;
-
-  coro_storage&lt;It&amp;, true&gt; it_;    // iterator
-  coro_storage&lt;const End&amp;, true&gt; end_; // sentinel
+  coro_storage&lt;G::iterator&amp;, true&gt; it_;    // iterator
+  coro_storage&lt;const G::sentinel&amp;, true&gt; end_; // sentinel
   coro_storage&lt;int&amp;, true&gt;                    parsed_;
 
   // Track which locals have been constructed
@@ -1601,7 +1565,7 @@ struct CoroFrame: coro_crtp&lt;CoroFrame, promise_type&gt; {
     bool it_ = false;
     bool end_ = false;
     bool parsed_ = false;
-  } __constructed ;
+  } __is_constructed ;
 };
   </code></pre>
   <p><small>Note: We could omit the tracking for trivially destructible types</small></p>
@@ -1613,10 +1577,8 @@ struct CoroFrame: coro_crtp&lt;CoroFrame, promise_type&gt; {
 stackless_coroutine_handle&lt;void&gt; actorImpl() {
   switch (this-&gt;suspendIdx_) { case 1:  goto try_label_1; }
 
-  CO_GET(initial_awaiter_).await_resume();
-  DESTROY_UNCONDITIONALLY(initial_awaiter_);
-  CO_INIT_EX(it_,  (this-&gt;strings_.begin()));
-  CO_INIT_EX(end_, (this-&gt;strings_.end()));
+  CO_INIT_EX(it_,  (strings_.begin());
+  CO_INIT_EX(end_, (strings_.end());
 
   for (; CO_GET(it_) != CO_GET(end_); ++CO_GET(it_)) {
     try_label_1:
@@ -1626,17 +1588,14 @@ stackless_coroutine_handle&lt;void&gt; actorImpl() {
         CO_YIELD(1, initial_awaiter_, CO_CONSTRUCT(parsed_,(std::stoi(*CO_GET(it_)))));
         DESTROY_UNCONDITIONALLY(parsed_);
       } catch(...) {
-        DESTROY_IF_CONSTRUCTED(initial_awaiter_, parsed_);
+        DESTROY_IF_CONSTRUCTED(parsed_, initial_awaiter_);
       }
     } catch (const std::invalid_argument&amp;) {
       if (!catch_errors) throw;
-    } catch (const std::out_of_range&amp;) {
-      if (!catch_errors) throw;
-      break;
+      break
     }
   }
-  DESTROY_UNCONDITIONALLY(end_, it_);
-  CO_RETURN_VOID(2, final_awaiter_);
+  CO_RETURN_VOID(end_, it_);
 }
   </code></pre>
 </section>
