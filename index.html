@@ -1262,7 +1262,7 @@ struct coro_storage {
     <div class="fragment" style="flex: 4;" data-fragment-index="30">
       <pre><code class="language-cpp" data-trim data-noescape
            data-line-numbers="|1-9|11|" data-fragment-index="31">
-#define CO_STORAGE_CONSTRUCT(buf, ...) 
+#define CO_INIT(buf, ...) 
 {
   using M = std::decay_t<decltype(buf)>; 
   if constexpr (M::isOwning) { 
@@ -1274,6 +1274,14 @@ struct coro_storage {
 
 #define CO_GET(arg) arg.get().ref_
       </code></pre>
+      <div class="fragment" data-fragment-index="50">
+      <p> Questions: </p>
+    <ol>
+      <li> Why do we need the <code>Proxy</code></li>
+      <li> Why CO_INIT(buf, ..) instead of  buf.construct(...) </li>
+      <li> Why M::Storage __VA_ARGS__ </li>
+    </ol>
+      </div>
     </div>
   </div>
 
@@ -1291,12 +1299,89 @@ struct coro_storage {
   </aside>
 </section>
 <section>
-  TODO Slide with answers, 1. because of rvalue reference semantics (don't
-  std::move)), 2. because of copy elision.
+  <h2>coro_storage &mdash; Some Examples</h2>
+  <!--
+    Each <tr class="fragment"> appears as one click.
+    To add more rows: copy a <tr> block and increment data-fragment-index.
+    Each <td> holds an independent <pre><code> block — add data-line-numbers
+    and a matching data-fragment-index on <code> if you want line stepping
+    within a cell (see macro slide for the pattern).
+  -->
+          <pre><code class="language-cpp" data-trim data-noescape>
+	    std::string&amp;&amp; getStringRef();  std::string getString();
+          </code></pre>
+  <table style="width:100%; border-collapse:collapse; table-layout:fixed;">
+    <colgroup>
+      <col style="width:50%;">
+      <col style="width:50%;">
+    </colgroup>
+    <thead>
+      <tr>
+        <th style="text-align:left; padding:0.3em 0.6em; border-bottom:2px solid #555;
+                   color:#aaa; font-weight:normal; font-size:0.85em;">C++20
+		   </th>
+        <th style="text-align:left; padding:0.3em 0.6em; border-bottom:2px solid #555;
+                   color:#aaa; font-weight:normal; font-size:0.85em;">C++17</th>
+      </tr>
+    </thead>
+    <tbody>
+      <!-- Row 1: Why Proxy? — rvalue reference semantics -->
+      <tr class="fragment" data-fragment-index="1">
+        <td style="padding:0.4em 0.6em; vertical-align:top; border-bottom:1px solid #333;">
+          <pre><code class="language-cpp" data-trim data-noescape>
+	  std::string&amp;&amp; x (getStringRef());
+	  doSomething(x);  // no move.
+          </code></pre>
+        </td>
+        <td style="padding:0.4em 0.6em; vertical-align:top; border-bottom:1px solid #333;">
+          <pre><code class="language-cpp" data-trim data-noescape>
+	  coro_storage&lt;std::string&amp;&amp;, false&gt; x ;
+	  CO_INIT(x, getStringRef());
+	  // x.get() that returns std::string&amp;&amp; would move!
+	  // Proxy type avoids this.
+	  doSomething(CO_GET(x)); 
+          </code></pre>
+        </td>
+      </tr>
+      <!-- Row 2: Why CO_INIT macro? — copy elision -->
+      <tr class="fragment" data-fragment-index="2">
+        <td style="padding:0.4em 0.6em; vertical-align:top; border-bottom:1px solid #333;">
+          <pre><code class="language-cpp" data-trim data-noescape>
+	  // Lifetime extension for temporary object!
+	  std::string&amp;&amp; x(getString());
+          </code></pre>
+        </td>
+        <td style="padding:0.4em 0.6em; vertical-align:top; border-bottom:1px solid #333;">
+          <pre><code class="language-cpp" data-trim data-noescape>
+	  // Preserve reference type + lifetime extension.
+	  coro_storage&lt;std::string&amp;&amp;, true&gt; x;
+	  CO_INIT(x, (getString()));  // Copy elision
+          </code></pre>
+        </td>
+      </tr>
+      <tr class="fragment" data-fragment-index="3">
+        <td style="padding:0.4em 0.6em; vertical-align:top; border-bottom:2px solid #555;">
+          <pre><code class="language-cpp" data-trim data-noescape>
+	  // () and {} do very different things here...
+	  std::string&amp;&amp; x(97, 'a');
+	  std::string&amp;&amp; y{'a', 'b'};
+          </code></pre>
+        </td>
+        <td style="padding:0.4em 0.6em; vertical-align:top; border-bottom:2px solid #555;">
+          <pre><code class="language-cpp" data-trim data-noescape>
+	  // Preserve whether the initialization was braced.
+	  CO_INIT(x, (97, 'a'));
+	  CO_INIT(y, {'a', 'b});
+          </code></pre>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+  <aside class="notes"></aside>
 </section>
 
 <!-- Slide 34: Key takeaway -->
-<section>
+<section data-visibility="hidden">
   <h2>coro_storage Design</h2>
   <ul>
     <li><strong>Owning</strong> (<code>isOwning=true</code>): stores the object by value in the buffer
@@ -1314,7 +1399,7 @@ struct coro_storage {
 
 
 <!-- Slide 36: Discussion -->
-<section>
+<section data-visibility="hidden">
   <h2>Discussion</h2>
   <h3>Local variable lifetime &mdash; questions?</h3>
 </section>
@@ -1588,9 +1673,17 @@ coroutine_handle&lt;void&gt; doStepImpl() {
 <!-- Slide 49+50: throwing_parse_ints + Two Challenges -->
 <section>
   <h3>Example D &mdash; Exception Handling</h3>
+  <!--
+    Fragment accounting:
+      Code  wrapper=1  code=2  "|3-10|4-9|5|6-8" = 4 pipes → steps 2-5
+      Right column items appear after all code steps:
+        heading + li 1  = fragment 6  (same index → appear together)
+        li 2            = fragment 7
+  -->
   <div style="display: flex; gap: 2em; align-items: flex-start;">
-    <div style="flex: 1;">
-      <pre><code class="language-cpp" data-trim data-noescape>
+    <div class="fragment" style="flex: 1;" data-fragment-index="1">
+      <pre><code class="language-cpp" data-trim data-noescape
+           data-line-numbers="|4-9|" data-fragment-index="2">
 generator&lt;int&gt; parse_ints(
     generator&lt;string&gt; strings, bool catch_errors) {
   for (const auto&amp; s : strings) {
@@ -1599,22 +1692,20 @@ generator&lt;int&gt; parse_ints(
     } catch (const std::invalid_argument&amp;) {
       if (!catch_errors) throw;
       break;
-    }  
+    }
   }
 }
       </code></pre>
-      <p><code>co_yield</code> inside a try-block, <code>break</code> inside catch handlers.</p>
     </div>
     <div style="flex: 1;">
-      <h3>Two Challenges</h3>
+      <h3 class="fragment" data-fragment-index="6">Two Challenges</h3>
       <ol>
-        <li><strong>Resuming into a try block</strong>
-	  <ul><li><code>goto</code> may not jump into a try block</li>
-        </ul>
-        <li><strong>Stack Unwinding</strong>
+        <li class="fragment" data-fragment-index="6"><strong>Resuming into a try block</strong>
+          <ul><li><code>goto</code> may not jump into a try block</li></ul>
+        </li>
+        <li class="fragment" data-fragment-index="7"><strong>Stack Unwinding</strong>
           <ul><li>Exceptions can occur anywhere &mdash; which locals are
-	      alive and thus have to be destroyed?</li>
-          </ul>
+              alive and thus have to be destroyed?</li></ul>
         </li>
       </ol>
     </div>
@@ -1644,8 +1735,10 @@ generator&lt;int&gt; parse_ints(
 <!-- Slide 51: Frame: __constructed tracking -->
 <section>
   <h2>Frame &mdash; Construction Tracking</h2>
-  <pre><code class="language-cpp" data-trim data-noescape>
+  <pre><code class="language-cpp" data-trim data-noescape
+		    data-line-numbers="|1-10|11-18|20-22|">
 struct CoroFrame: coro_crtp&lt;CoroFrame, promise_type&gt; {
+  // As usual
   using G = generator&lt;string&gt; 
   G strings_;
   bool catch_errors_;
@@ -1653,14 +1746,19 @@ struct CoroFrame: coro_crtp&lt;CoroFrame, promise_type&gt; {
   coro_storage&lt;G::iterator&amp;, true&gt; it_;    // iterator
   coro_storage&lt;const G::sentinel&amp;, true&gt; end_; // sentinel
   coro_storage&lt;int&amp;, true&gt;                    parsed_;
+  coro_storage&lt;suspend_never&amp;, true&gt;          awaiter_;
 
-  // Track which locals have been constructed
+  // New: Track which locals have been constructed
   struct {
     bool initial_awaiter_ = false;
     bool it_ = false;
     bool end_ = false;
     bool parsed_ = false;
   } __is_constructed ;
+
+  void destroyBecauseOfUnhandledException() {
+    DESTROY_IF_CONSTRUCTED(awaiter_, parsed_, end_, it_);
+  }
 };
   </code></pre>
   <p><small>Note: We could omit the tracking for trivially destructible types</small></p>
@@ -1668,7 +1766,8 @@ struct CoroFrame: coro_crtp&lt;CoroFrame, promise_type&gt; {
 
 <!-- Slide 52: doStepImpl(): try block + labels -->
 <section>
-  <pre class="small-code"><code class="language-cpp" data-trim data-noescape>
+  <pre class="small-code"><code class="language-cpp" data-trim data-noescape
+  data-line-numbers="|">
 coroutine_handle&lt;void&gt; resumeImpl() {
   switch (this-&gt;suspendIdx_) { case 1:  goto try_label_1; }
 
@@ -1680,10 +1779,11 @@ coroutine_handle&lt;void&gt; resumeImpl() {
     try {
       try {
         switch (this-&gt;suspendIdx_) { case 1:  goto label_1; }
-        CO_YIELD(1, initial_awaiter_, CO_CONSTRUCT(parsed_,(std::stoi(*CO_GET(it_)))));
+        CO_INIT_EX(parsed_,(std::stoi(*CO_GET(it_)));
+        CO_YIELD(1, awaiter_, CO_GET(parsed_));
         DESTROY_UNCONDITIONALLY(parsed_);
       } catch(...) {
-        DESTROY_IF_CONSTRUCTED(parsed_, initial_awaiter_);
+        DESTROY_IF_CONSTRUCTED(parsed_, awaiter_);
       }
     } catch (const std::invalid_argument&amp;) {
       if (!catch_errors) throw;
@@ -1696,7 +1796,7 @@ coroutine_handle&lt;void&gt; resumeImpl() {
 </section>
 
 <!-- Slide 57: Discussion -->
-<section>
+<section data-visibility="hidden">
   <h2>Discussion</h2>
   <h3>Exception handling &mdash; questions?</h3>
 </section>
@@ -2064,7 +2164,7 @@ struct generator_promise {
 </section>
 
 <!-- Slide 67: Why rewrite language features? -->
-<section>
+<section data-visibility="hidden">
   <h2>Why Rewrite Language Features?</h2>
   <ul>
     <li><strong>C++17 portability</strong> &mdash; use coroutine patterns where C++20 isn't available</li>
@@ -2079,7 +2179,7 @@ struct generator_promise {
 <!-- ============================================================ -->
 
 <!-- Slide 68: What we covered -->
-<section>
+<section data-visibility="hidden">
   <h2>What We Covered</h2>
   <ul>
     <li><strong>Infrastructure</strong>: coro_frame_abi, coroutine_handle, CRTP base, coro_storage, macros</li>
@@ -2097,7 +2197,7 @@ struct generator_promise {
 </section>
 
 <!-- Slide 69: Key takeaways -->
-<section>
+<section data-visibility="hidden">
   <h2>Key Takeaways</h2>
   <ol>
     <li><strong>Promise + Awaitable = stable API</strong>
