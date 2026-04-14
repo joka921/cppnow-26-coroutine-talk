@@ -1218,39 +1218,71 @@ void destroyImpl() {
 <!-- Slide 13: coro_storage -->
 <section>
   <p>Storing local variables across suspension points</p>
-  <pre><code class="language-cpp" data-trim data-noescape>
+  <!--
+    Two-column stepping — same two-system pattern:
+      A) wrapper <div class="fragment" data-fragment-index="N"> — visibility
+      B) <code data-fragment-index="N+1"> — where highlight stepping begins
+
+      Left  (coro_storage)  wrapper=1  code=2   "|" = 1 pipe → step 2
+      Right (TODO)          wrapper=3  code=4   "|" = 1 pipe → step 4
+
+    To add line steps: replace "|" with e.g. "|1-7|9|11-17|19-21" on the left
+    code, then update left code's data-fragment-index to 2 (unchanged) and
+    right wrapper to 2 + number_of_pipes, right code to right_wrapper + 1.
+  -->
+  <div style="display: flex; gap: 2em; align-items: flex-start;">
+    <div class="fragment" style="flex: 5;" data-fragment-index="1">
+      <pre><code class="language-cpp" data-trim data-noescape
+           data-line-numbers="|1-4|6-10|12-17|19-21|" data-fragment-index="2">
 template &lt;typename Ref, bool isOwning&gt;
 struct coro_storage {
-  // Owning: stores decay_t&lt;Ref&gt; by value
-  // Non-owning: stores a pointer
-  using Storage = std::conditional_t&lt;isOwning,
-      std::decay_t&lt;Ref&gt;,
-      std::add_pointer_t&lt;std::decay_t&lt;Ref&gt;&gt;&gt;;
+  using Obj = std::decay_t&lt;Ref&gt;,
+  using Storage = std::conditional_t&lt;isOwning, Obj, Obj*&gt;;
 
   alignas(Storage) char buffer[sizeof(Storage)];
 
-  struct Proxy { Ref ref_; };
+  Storage* ptr() {
+    return std::launder(
+            reinterpret_cast&lt;Storage*&gt;(buffer));
+  }
 
-  Proxy get() noexcept {
-    Storage&amp; s = *std::launder(reinterpret_cast&lt;Storage*&gt;(buffer));
+  struct Proxy { Ref ref_; };
+  Proxy get() {
+    Storage&amp; s = *ptr();
     if constexpr (isOwning) return s;
     else return *s;
   }
 
-  void destroy() noexcept(...) {
-    std::launder(reinterpret_cast&lt;Storage*&gt;(buffer))-&gt;~Storage();
-  }
+  void destroy() { ptr()-&gt;~Storage();}
 
-  // Emplacement via placement new (encapsulated in a macro).
+  // Emplacement via placement new macro.
 };
-  </code></pre>
+      </code></pre>
+    </div>
+    <div class="fragment" style="flex: 4;" data-fragment-index="30">
+      <pre><code class="language-cpp" data-trim data-noescape
+           data-line-numbers="|1-9|11|" data-fragment-index="31">
+#define CO_STORAGE_CONSTRUCT(buf, ...) 
+{
+  using M = std::decay_t<decltype(buf)>; 
+  if constexpr (M::isOwning) { 
+    new (buf.buffer) M::Storage __VA_ARGS__;
+  } else {
+    new (buf.buffer) M::Storage{&amp;__VA_ARGS__};
+  } 
+}
+
+#define CO_GET(arg) arg.get().ref_
+      </code></pre>
+    </div>
+  </div>
 
   <aside class="notes">
     To store local variables from the coroutine body in the frame, we use a
     suitably aligned uninitialized buffer, that is typed on the reference type
     of the variable, and the information on whether the variable actually owns
     and stores an object, which is the case for object-type variables, but also
-    for reference variables that extend the lifetime of temporaries. We then use
+    for reference references that extend the lifetime of temporaries. We then use
     placement new and explicit destructor calls to manage the lifetime of the
     objects. I now again have two questions for you: Why does the get function
     which we use to access the stored value with the correct reference semantics
