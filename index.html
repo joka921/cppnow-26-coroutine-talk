@@ -340,7 +340,7 @@ for (int i : iota(3)) {
         <div style="background:rgba(155,109,213,0.14); border:1px solid #9B6DD560;
                     border-radius:5px; padding:0 10px;
                     height:50px; display:flex; flex-direction:column; justify-content:center;">
-          <div style="color:#C4A8E8; font-weight:bold; margin-bottom:3px;">actor
+          <div style="color:#C4A8E8; font-weight:bold; margin-bottom:3px;">resume
 	  + destroy functions</div>
 	  </div>
       </div>
@@ -574,7 +574,8 @@ for (int i : iota(3)) {
   <pre><code class="language-cpp" data-trim data-noescape>
 generator&lt;int&gt; iota(int start, int end) {
   while (start &lt; end) {
-    co_yield start++;
+    co_yield start;
+    ++start;
   }
 }
   </code></pre>
@@ -601,24 +602,24 @@ generator&lt;int&gt; iota(int start, int end) {
   <div style="display: flex; gap: 2em; align-items: flex-start;">
     <div style="flex: 1;">
       <pre><code class="language-cpp" data-trim data-noescape
-      data-line-numbers="|1-3|4-5|6-11|12-14|15|17-20|">
+      data-line-numbers="|1-3|4-5|6-11|12-15|16|17-20|">
  generator&lt;int&gt; iota(int start, int end) {
   using promise_type = generator&lt;int&gt;::promise_type;
-  struct CoroFrame : stackless_coro_crtp&lt;CoroFrame, promise_type&gt; {
+  struct CoroFrame : coro_frame_base&lt;CoroFrame, promise_type&gt; {
     int start_, end_;    // parameters → stored in frame
 
-    coroutine_handle&lt;void&gt; actorImpl() {
+    coroutine_handle&lt;void&gt; resumeImpl() {
       switch (suspendIdx_) {  // Jump table for resumption.
         case 0: break;        // first entry (after initial_suspend)
-        case 1: goto label_1; // resume after co_yield
+        case 1: goto suspend_label_1; // resume after co_yield
       }
 
       while (start_ &lt; end_) {
-        CO_YIELD(1, initial_awaiter_, (start_++));
+        CO_YIELD(1, initial_awaiter_, start_);
+        ++start;
       }
       CO_RETURN_VOID(); // implicit co_return
     }
-    // ... destroy function omitted ...
   };
   return generator&lt;int&gt;(CoroFrame::ramp(start, end));
 }
@@ -631,7 +632,7 @@ generator&lt;int&gt; iota(int start, int end) {
       factor it out into a common base class using CRTP.
       [B] We need to store the function parameters of the coroutine inside the frame, and
       also require a constructor to initialize them.
-      [B] The actual state machine logic is implemented inside the actorImpl
+      [B] The actual state machine logic is implemented inside the resumeImpl
       function. We first have to check at which suspension point we have to
       resume our coroutine. Each coroutine has an implicit suspension point at
       the beginning of the body, and there is an additional suspension point for
@@ -688,16 +689,17 @@ generator&lt;int&gt; iota(int start, int end) {
   CO_INIT(awaiterMem, 
           (promise().yield_value(value)));
   CO_AWAIT_IMPL(CO_GET(awaiterMem));
-  label_##index: 
+  suspend_label_##index: 
   CO_GET(awaiterMem).await_resume(); 
   awaiterMem.destroy();
         </code></pre>
       </div>
-      <div class="fragment" data-fragment-index="7"
+      <div class="fragment" data-fragment-index="20"
 			    data-speaker-notes="">
         <pre><code class="language-cpp" data-trim data-noescape
-             data-line-numbers="|" data-fragment-index="8">
+             data-line-numbers="|1-2|3-4|5-7|8|" data-fragment-index="21">
 #define CO_RETURN_VOID(finalAwaiterMem, ...) 
+  promise().return_void();
   this-&gt;setDone(); 
   DESTROY_UNCONDITIONALLY(__VA_ARGS__) 
   CO_INIT(finalAwaiterMem, 
@@ -719,7 +721,7 @@ generator&lt;int&gt; iota(int start, int end) {
            coroutine_handle means symmetric transfer — hand control directly
            to the returned coroutine without going through the trampoline.">
         <pre><code class="language-cpp" data-trim data-noescape
-             data-line-numbers="|2-3|4-6|7-10|11-15" data-fragment-index="10">
+             data-line-numbers="|2-3|4-6|7-10|11-15|" data-fragment-index="10">
 #define CO_AWAIT_IMPL(awaiter) {
   if (!awaiter.await_ready()) {
     using T = decltype(awaiter.await_suspend(getHandle());
@@ -757,31 +759,28 @@ generator&lt;int&gt; iota(int start, int end) {
 </section>
 
 
-<!-- Slide 9: stackless_coroutine_handle<void> -->
+<!-- Slide 9: coroutine_handle<void> -->
 <section>
   <h3>coroutine_handle (1/2)</h3>
   <pre><code class="language-cpp" data-trim data-noescape
-  data-line-numbers=|1-11|15-18|6,16|>
+  data-line-numbers=|1-3|5-8|10-19|>
 // Forward declaration.
 template &lt;typename Promise&gt;
-struct stackless_coroutine_handle;
+struct coroutine_handle;
 
-struct HandleFrame {
-  stackless_coroutine_handle&lt;void&gt; (*resumeFunc)(void*);
-  void (*destroyFunc)(void*);
+struct coro_frame_abi {
+  coroutine_handle&lt;void&gt; (*resume)(void*);
+  void (*destroy)(void*);
 };
 
 template&lt;typename Promise&gt;
 struct coroutine_handle {
-  HandleFrame* ptr;
-
-  coroutine_handle() noexcept : ptr(nullptr) {}
-  coroutine_handle(HandleFrame* ptr) noexcept : ptr(ptr) {}
+  coro_frame_abi* abi_{};
 
   void resume();  // trampoline — defined later
-  void destroy() { ptr-&gt;destroyFunc(reinterpret_cast&lt;void*&gt;(ptr)); }
-  operator bool() const { return static_cast&lt;bool&gt;(ptr); }
-  bool done() const { return ptr-&gt;resumeFunc == nullptr; }
+  void destroy() { abi_-&gt;destroy(reinterpret_cast&lt;void*&gt;(abi_)); }
+  bool done() const { return abi_-&gt;resume == nullptr; }
+  operator bool() const { return static_cast&lt;bool&gt;(abi_); }
   // ... (see next slide)
 };
 
@@ -791,12 +790,12 @@ struct coroutine_handle {
     class .The two important operations of
     a coroutine handle are to resume and to destroy the coroutine. As the
     coroutine handle is type-erased wrt to the details of the coroutine frame,
-    we use two function pointers encapsulated into a struct called HandleFrame.
-    The HandleFrame will later be a data member of the actual coroutine frame.
+    we use two function pointers encapsulated into a struct called coro_frame_abi.
+    The coro_frame_abi will later be a data member of the actual coroutine frame.
     The coroutine handle gets a single pointer
     to that struct, making the handle as lightweight as possible.
     The required interface is then implemented in terms of those function
-    pointers. The HandleFrame class will later be our first member of the
+    pointers. The coro_frame_abi class will later be our first member of the
     coroutine frame, s.t. its address can be used to compute the address of the
     frame and therefore is a reasonable argument that we pass to the function
     pointers. 
@@ -806,7 +805,7 @@ struct coroutine_handle {
   </aside>
 </section>
 
-<!-- Slide 10: stackless_coroutine_handle<Promise> -->
+<!-- Slide 10: coroutine_handle<Promise> -->
 <section>
   <h3>coroutine_handle (2/2)</h3>
   <pre><code class="language-cpp" data-trim data-noescape
@@ -817,13 +816,13 @@ struct coroutine_handle {
 
   // Only if Promise is not void:
 
-  // Promise lives right after HandleFrame in the coroutine frame
+  // Promise lives right after coro_frame_abi in the coroutine frame
   static constexpr size_t promise_offset =
-      (sizeof(HandleFrame) + alignof(Promise) - 1)
+      (sizeof(coro_frame_abi) + alignof(Promise) - 1)
       &amp; ~(alignof(Promise) - 1);
 
   static coroutine_handle from_promise(Promise&amp; p) {
-    auto* ptr = reinterpret_cast&lt;HandleFrame*&gt;(
+    auto* ptr = reinterpret_cast&lt;coro_frame_abi*&gt;(
         reinterpret_cast&lt;char*&gt;(&amp;p) - promise_offset);
     return coroutine_handle{ptr};
   }
@@ -852,10 +851,9 @@ struct coroutine_handle {
   <pre><code class="language-cpp" data-trim data-noescape>
 template&lt;typename P&gt;
 void coroutine_handle&lt;P&gt;::resume() {
-  coroutine_handle&lt;void&gt; next =
-      ptr-&gt;resumeFunc(reinterpret_cast&lt;void*&gt;(ptr));
-  while (next.ptr) {
-    next = next.ptr-&gt;resumeFunc(
+  auto cur = *this;
+  while (cur) {
+    cur = cur.ptr-&gt;resumeFunc(
         reinterpret_cast&lt;void*&gt;(next.ptr));
   }
 }
@@ -905,21 +903,16 @@ struct SuspendNever {
 
 <!-- Slide 14: CRTP base layout -->
 <section>
-  <h2>CRTP Base Layout</h2>
+  <h3>A Base Class for Coroutine Frames</h3>
   <pre><code class="language-cpp" data-trim data-noescape
-		    data-line-numbers="1-2|3-12|14|16-18|20-25|">
+		    data-line-numbers="|1-2|3-7|9|11-13|15-20|">
 template &lt;typename Frame, typename PromiseType&gt;
-struct stackless_coro_crtp {
-  // Must match stackless_coroutine_handle layout:
+struct coro_frame_base {
+  // Must match coroutine_handle layout:
   // promise_ directly after frame_
-  HandleFrame frame_;
+  coro_frame_abi frame_{&amp;coro_frame_base::resume,
+                        &amp;coro_frame_base::destroy};
   PromiseType promise_;
-
-  // Constructor: wire up function pointers
-  stackless_coro_crtp() {
-    frame_.resumeFunc  = &amp;stackless_coro_crtp::resume;
-    frame_.destroyFunc = &amp;stackless_coro_crtp::destroy;
-  }
 
   size_t suspendIdx_ = 0;
 
@@ -930,9 +923,9 @@ struct stackless_coro_crtp {
   template&lt;typename... CoroArgs&gt;
   static auto ramp(CoroArgs&amp;&amp;... coroArgs);
 
-  stackless_coroutine_handle&lt;void&gt; actor() noexcept;
+  static coroutine_handle&lt;void&gt; resume(void* abi);
 
-  void destroy();
+  static void destroy(void* abi);
 };
   </code></pre>
   <aside class="notes">
@@ -954,10 +947,11 @@ struct stackless_coro_crtp {
 
 <!-- Slide 15: ramp() function -->
 <section>
+  <h3> Ramp() </h3>
   <pre><code class="language-cpp" data-trim data-noescape
-		    data-line-numbers="1-9|11-20|21-23|">
+		    data-line-numbers="|1-9|11-20|21-23|">
 template &lt;typename... CoroArgs&gt;
-static auto stackless_coro_crtp::ramp(CoroArgs&amp;&amp;... coroArgs) {
+static auto coro_frame_base::ramp(CoroArgs&amp;&amp;... coroArgs) {
   // 1. Allocate the frame
   void* coroMem = promise_allocate&lt;PromiseType&gt;(
       sizeof(Frame), std::forward&lt;CoroArgs&gt;(coroArgs)...);
@@ -970,10 +964,10 @@ static auto stackless_coro_crtp::ramp(CoroArgs&amp;&amp;... coroArgs) {
   auto ret = frame-&gt;promise_.get_return_object();
 
   // 4. co_await initial_suspend
-  CO_STORAGE_CONSTRUCT(frame-&gt;initial_awaiter_,
+  CO_INIT(frame-&gt;initial_awaiter_,
       (frame-&gt;promise_.initial_suspend()));
   auto handle = frame-&gt;getHandle();
-  CO_AWAIT_IMPL_IMPL(frame-&gt;initial_awaiter_.get().ref_,
+  CO_AWAIT_IMPL_IMPL(CO_GET(frame-&gt;initial_awaiter_),
                       handle, ret);
 
   // 5. If initial_suspend didn't suspend, resume immediately
@@ -1003,30 +997,37 @@ static auto stackless_coro_crtp::ramp(CoroArgs&amp;&amp;... coroArgs) {
 
 <!-- Slide 16: doStep() actor -->
 <section>
-  <h3>actor() </h3>
+  <h3>resume() </h3>
   <pre><code class="language-cpp" data-trim data-noescape
-  data-line-numbers="1-3|4-8|10-15|">
-stackless_coroutine_handle&lt;void&gt; actor() {
+  data-line-numbers="|1-8|9-11|13-16|18-22|">
+coroutine_handle&lt;void&gt; resume(void* abi) {
+  auto&amp; fr = fromAbi(abi); // Cast to derived frame class.
   try {
-    return static_cast&lt;Frame&amp;&gt;(this).actorImpl();
+    if (fr.suspendIdx_ == 0) {
+      CO_GET(fr.initial_awaiter_).await_resume();
+      fr.initial_awaiter.destroy();
+    }
+    return fr.resumeImpl();
   } catch (...) {
-    promise_.unhandled_exception();
+    frame.promise_.unhandled_exception();
   }
-  auto&amp;&amp; awaiter = CO_STORAGE_CONSTRUCT(final_awaiter_, promise_.final_suspend());
-  CO_AWAIT_IMPL_IMPL(awaiter, getHandle());
+
+  abi-&gt;resume = nullptr; // coro is done!
+  auto&amp;&amp; awaiter = CO_INIT(fr.final_awaiter_, 
+                           fr.promise_.final_suspend());
+  CO_AWAIT_IMPL_IMPL(awaiter, fr.getHandle());
 
   // Final awaiter didn't suspend, clean up and delete the frame.
-  awaiter.await_resume();
-  final_awaiter_.destroy();
-  handle.resume();
+  fr.awaiter.await_resume();
+  fr.final_awaiter_.destroy();
   deleteFrame();
   return {};
 }
   </code></pre>
   <aside class="notes">
     Most of the actor function has to be implemented in the derived frame class
-    via an actorImpl() member function,
-    as the actor encodes the actual coroutine body and thus is different for each
+    via an resumeImpl() member function,
+    as the resume encodes the actual coroutine body and thus is different for each
     coroutine.
     The only thing we can encode in the CRTP class is the handling of exceptions
     that escape from the coroutine body. In that case we first have to call the
@@ -1042,15 +1043,18 @@ stackless_coroutine_handle&lt;void&gt; actor() {
 <section>
   <h2>destroy()</h2>
   <pre><code class="language-cpp" data-trim data-noescape
-		    data-line-numbers="1-4|5-9|10-11|">
-void destroy() {
-  if (!done()) {
-    // Still suspended mid-body: clean up local variables
-    static_cast&lt;Frame&amp;&gt;(this).destroySuspendedCoro();
-  } else {
-    // At final suspension point: only final_awaiter_ remains
-    final_awaiter_.get().ref_.await_resume();
+		    data-line-numbers="|3-5|6-8|9-11|13">
+static void destroy(void* abi) {
+  auto&amp; fr = fromAbi(abi)
+  if (fr.done()) {
+    // final suspension point.
     final_awaiter_.destroy();
+  } else if (fr.suspendIdx == 0) {
+    // initial suspension point:
+    initial_awaiter_.destroy();
+  } else {
+    // Still suspended mid-body: clean up local variables
+    fr.destroyImpl();
   }
   deleteFrame();  // destructor + operator delete
 }
@@ -1131,7 +1135,7 @@ generator&lt;string&gt; string_prepend(
   <ul>
     <li>Iterator variables live across suspension points</li>
     <li><code>prefix + *it</code> creates a temporary that must survive the yield</li>
-    <li>These locals need explicit lifetime management in the frame</li>
+    <li>Locals need explicit lifetime management</li>
   </ul>
 </section>
 
@@ -1140,71 +1144,75 @@ generator&lt;string&gt; string_prepend(
   <h2>string_prepend &mdash; Frame Layout</h2>
   <pre><code class="language-cpp" data-trim data-noescape>
 struct CoroFrame
-    : stackless_coro_crtp&lt;CoroFrame, promise_type&gt; {
+    : coro_frame_base&lt;CoroFrame, promise_type&gt; {
   // Coroutine arguments:
-  generator&lt;string&gt; input_;
+  using Gen = generator&lt;string&gt; 
+  Gen input_;
   string prefix_;
 
-  // Local variables stored as coro_storage:
-  using It  = std::remove_cvref_t&lt;decltype(input_.begin())&gt;;
-  using End = std::remove_cvref_t&lt;decltype(input_.end()));&gt;;
-
-  coro_storage&lt;It&amp;, true&gt; it_;    // iterator
-  coro_storage&lt;const End&amp;, true&gt; end_; // sentinel
+  // Buffers for local variables:
+  coro_storage&lt;Gen::iterator&amp;, true&gt; it_;    // iterator
+  coro_storage&lt;const Gen::sentinel&amp;, true&gt; end_; // sentinel
   coro_storage&lt;string&amp;&amp;, true&gt; tmp_;   // yield temp
 
-  // ... 
+  // ... (resumeImpl + destroyImpl on following slides) 
 };
   </code></pre>
-  <p><small> What does the type of `tmp_` depend on?</small></p>
 </section>
 
 <!-- Slide 32+33: doStepImpl() + destroySuspendedCoro() -->
 <section>
   <h2>string_prepend &mdash; Frame Functions</h2>
+  <!--
+    Same two-system pattern as macro slide:
+      A) wrapper <div class="fragment" data-fragment-index="N"> — visibility
+      B) <code data-fragment-index="N+1"> — where the highlight plugin starts stepping
+
+      resumeImpl  wrapper=1  code=2   "|2-4|6-7|9-14|16" = 4 pipes → steps 2-5
+      destroyImpl wrapper=6  code=7   "|2-7|5-6"          = 2 pipes → steps 7-8
+
+      To change highlighted ranges: edit data-line-numbers on <code>.
+      To add/remove a step: count pipes, set code index = wrapper+1,
+        next wrapper = code + pipes.
+  -->
   <div style="display: flex; gap: 2em; align-items: flex-start;">
-    <div style="flex: 1;">
-      <pre><code class="language-cpp" data-trim data-noescape>
-stackless_coroutine_handle&lt;void&gt; doStepImpl() {
+    <div class="fragment" style="flex: 5;" data-fragment-index="1">
+      <pre><code class="language-cpp" data-trim data-noescape
+           data-line-numbers="|2-4|6-7|9|10-13|16|" data-fragment-index="2">
+coroutine_handle&lt;void&gt; resumeImpl() {
   switch (suspendIdx_) {
-    case 0: break;
-    case 1: goto label_1;
+    case 1: goto suspend_label_1;
   }
 
   CO_INIT(it_,  (rangeOfStrings_.begin()));
   CO_INIT(end_, (rangeOfStrings_.end()));
 
   for (; CO_GET(it_) != CO_GET(end_); ++CO_GET(it_)) {
-    CO_INIT(tmp_, (prefix_ + *CO_GET(it_)));  // construct temp
+    // construct temp
+    CO_INIT(tmp_, (prefix_ + *CO_GET(it_)));
     CO_YIELD(1, initial_awaiter_, CO_GET(tmp_));
-    tmp_.destroy();                            // destroy after resume
+    tmp_.destroy(); // destroy after resume.
   }
 
-  CO_RETURN_VOID(2);
+  CO_RETURN_VOID(end_, it_);
 }
       </code></pre>
     </div>
-    <div style="flex: 1;">
-      <pre><code class="language-cpp" data-trim data-noescape>
-void destroySuspendedCoro() {
+    <div class="fragment" style="flex: 4;" data-fragment-index="60">
+      <pre><code class="language-cpp" data-trim data-noescape
+           data-line-numbers="|" data-fragment-index="61">
+void destroyImpl() {
   switch (suspendIdx_) {
-    case 0:
-      // At initial_suspend — only awaiter alive
-      initial_awaiter_.destroy();
-      return;
     case 1:
-      // Mid-loop, at co_yield — tmp_ is alive!
+      // Suspended at the co_yield
       initial_awaiter_.destroy();
       tmp_.destroy();
-    case 2: [[fallthrough]]
-      end_.destroy();
-      it_.destroy();
-      return;
   }
 }
       </code></pre>
     </div>
   </div>
+  <aside class="notes"></aside>
 </section>
 
 <!-- Slide 13: coro_storage -->
@@ -1418,7 +1426,7 @@ task&lt;size_t&gt; compute_value(size_t x) {
     <div>
       <h4>Hand-lowered</h4>
       <pre><code class="language-cpp" data-trim data-noescape>
-struct CoroFrame : stackless_coro_crtp&lt;
+struct CoroFrame : coro_frame_base&lt;
     CoroFrame, promise_type, true&gt; {
   size_t x_;
 
@@ -1454,7 +1462,7 @@ task&lt;size_t&gt; add_values(size_t a, size_t b) {
   <h2>add_values &mdash; Frame Layout</h2>
   <pre><code class="language-cpp" data-trim data-noescape>
 struct CoroFrame
-    : stackless_coro_crtp&lt;CoroFrame, promise_type, false&gt; {
+    : coro_frame_base&lt;CoroFrame, promise_type, false&gt; {
   size_t a_, b_;
   size_t res_, va_, vb_;
 
@@ -1480,8 +1488,8 @@ struct CoroFrame
 coroutine_handle&lt;void&gt; doStepImpl() {
   switch (this-&gt;suspendIdx_) {
     case 0: break;
-    case 1: goto label_1;
-    case 2: goto label_2;
+    case 1: goto suspend_label_1;
+    case 2: goto suspend_label_2;
   }
 
   res_ = 0;
@@ -1629,7 +1637,7 @@ struct CoroFrame: coro_crtp&lt;CoroFrame, promise_type&gt; {
 <!-- Slide 52: doStepImpl(): try block + labels -->
 <section>
   <pre class="small-code"><code class="language-cpp" data-trim data-noescape>
-stackless_coroutine_handle&lt;void&gt; actorImpl() {
+coroutine_handle&lt;void&gt; resumeImpl() {
   switch (this-&gt;suspendIdx_) { case 1:  goto try_label_1; }
 
   CO_INIT_EX(it_,  (strings_.begin());
@@ -1785,7 +1793,7 @@ struct stackful_coro_crtp {
   <aside class="notes">
     In our CRTP base class for coroutine frames, we actually don't have to
     change much. We still need to store the promise, the suspension index, and
-    most of the control functions like the actor and destroy functions can stay
+    most of the control functions like the resume and destroy functions can stay
     exactly the same as for the stackless case. The only relevant change is in
     the ramp function, which now returns the stackful coroutine frame directly.
     We cannot use the get-return-object mechanism of the promise type, as the
@@ -2042,7 +2050,7 @@ struct generator_promise {
 <section>
   <h2>What We Covered</h2>
   <ul>
-    <li><strong>Infrastructure</strong>: HandleFrame, coroutine_handle, CRTP base, coro_storage, macros</li>
+    <li><strong>Infrastructure</strong>: coro_frame_abi, coroutine_handle, CRTP base, coro_storage, macros</li>
     <li><strong>4 Examples</strong>:
       <ul>
         <li>(a) Minimal generator &mdash; basic state machine</li>
