@@ -1,15 +1,21 @@
 /* Custom styles for the C++Now 2026 coroutine talk */
 
-/* ── Slide content area ───────────────────────────────────────────────────
-   reveal.js (reveal.css) puts padding:30px on every <section>, which eats
-   into the usable slide area from the top and bottom.  Override it here.
+/* ── Heading capitalisation ───────────────────────────────────────────────
+   reveal.js themes set --r-heading-text-transform:uppercase by default.
+   Override it here to preserve the capitalisation you wrote.
+   To re-enable ALL CAPS: change "none" back to "uppercase".            */
+:root {
+  --r-heading-text-transform: none;
+}
 
-   TOP / BOTTOM SPACE:  change the first two values of `padding` below.
-   LEFT / RIGHT SPACE:  change the last two values.
-   (The reveal.js `margin` option in Reveal.initialize() adds an additional
-   proportional border around the whole presentation — see index.html.)    */
+/* ── Slide inner padding ──────────────────────────────────────────────────
+   Space between the purple border and the slide content.
+   Outer margins (between the purple box and the screen edge) are controlled
+   by OUTER_H / OUTER_V in the <script> block of index.html.
+
+   CHANGE THESE to adjust breathing room inside the purple frame:          */
 .reveal .slides section {
-  padding: 8px 20px;
+  padding: 12px 28px;
 }
 
 /* ── Heading gap ──────────────────────────────────────────────────────────
@@ -21,16 +27,24 @@
   margin-bottom: 10px;
 }
 
-/* ── Code block height ────────────────────────────────────────────────────
-   With the section padding reduced above, the usable content height is
-   roughly: slide_height(900) – section_padding_tb(16) – heading(~75px)
-            ≈ 810px.
-   Set max-height to a value below that so tall code blocks never scroll.
-   Increase this number if you still see a scrollbar; decrease if code
-   blocks push other content off the slide.                               */
+/* ── Code font size — relative to slide height ────────────────────────────
+   --slide-h is injected by JS in index.html to the actual pixel height of the
+   16:9 slide box.  Font sizes are fractions of that value so they stay
+   proportional regardless of screen resolution or outer-margin settings.
+
+   TUNE THESE three scale factors:
+     --code-font-scale        normal code blocks
+     --code-font-scale-small  slides with class="small-code"
+     --code-font-scale-col    code inside two-column layouts               */
+:root {
+  --code-font-scale:       0.024;   /* × slide height  ≈ 37 px at 1440 h */
+  --code-font-scale-small: 0.016;   /* × slide height  ≈ 23 px at 1440 h */
+  --code-font-scale-col:   0.0220;   /* × slide height  ≈ 35 px at 1440 h */
+}
+
 .reveal pre code {
-  max-height: 720px;
-  font-size: 0.95em;
+  font-size: calc(var(--slide-h) * var(--code-font-scale));
+  max-height: calc(var(--slide-h) * 0.78);
   line-height: 1.3;
 }
 
@@ -43,12 +57,13 @@
 }
 
 .reveal .small-code pre code {
-  font-size: 0.55em;
+  font-size: calc(var(--slide-h) * var(--code-font-scale-small));
 }
 
 .reveal .two-column {
   display: flex;
-  gap: 2em;
+  gap: 0em;
+  align-items: flex-start;
 }
 
 .reveal .two-column > * {
@@ -56,8 +71,10 @@
 }
 
 .reveal .two-column pre code {
-  font-size: 0.95em;
+  font-size: calc(var(--slide-h) * var(--code-font-scale-col));
+  padding-left: calc(var(--slide-h) * 0.006);
 }
+
 
 .reveal section h4 {
   margin-top: 0.5em;
@@ -74,6 +91,14 @@
 
 .reveal section ul ul {
   font-size: 0.9em;
+}
+
+/* ── Slide number size ────────────────────────────────────────────────────
+   reveal.js default is 12px (in reveal.css: .slide-number { font-size:12px }).
+   Increase here.  Also adjust padding so the background pill scales nicely. */
+.reveal .slide-number {
+  font-size: 28px;
+  padding: 8px 12px;
 }
 
 /* Hide slide number on title slide (data-state="hide-slide-number") */
