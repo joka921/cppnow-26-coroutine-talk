@@ -42,6 +42,9 @@
   --code-font-scale-col:   0.0220;   /* × slide height  ≈ 35 px at 1440 h */
 }
 
+.reveal pre {
+  width: calc(var(--slide-w) * 0.65);
+}
 .reveal pre code {
   font-size: calc(var(--slide-h) * var(--code-font-scale));
   max-height: calc(var(--slide-h) * 0.78);
@@ -62,7 +65,7 @@
 
 .reveal .two-column {
   display: flex;
-  gap: 0em;
+  gap: 1em;
   align-items: flex-start;
 }
 
@@ -73,6 +76,10 @@
 .reveal .two-column pre code {
   font-size: calc(var(--slide-h) * var(--code-font-scale-col));
   padding-left: calc(var(--slide-h) * 0.006);
+}
+
+.reveal .two-column pre {
+  width:unset;
 }
 
 

@@ -209,7 +209,7 @@ struct SomeStringGenerator
 
 <!-- Slide 3b: Coroutine anatomy overview diagram -->
 <section>
-  <h2>Coroutine Anatomy &mdash; Overview</h2>
+  <h3>Coroutine Anatomy &mdash; Overview</h3>
 
   <!--
     ╔══════════════════════════════════════════════════════════════╗
@@ -219,44 +219,46 @@ struct SomeStringGenerator
     ╚══════════════════════════════════════════════════════════════╝
   -->
   <div class="highlight-container" style="
-      --diag-fs: 30px;
+      --diag-fs: calc(var(--slide-h) * 0.030);
+      --diag-w:  calc(var(--slide-w) * 0.827);
+      --diag-h:  calc(var(--slide-h) * 0.825);
       position: relative;
-      width: 1460px;
-      height: 720px;
+      width:  var(--diag-w);
+      height: var(--diag-h);
       font-size: var(--diag-fs);
       margin: 0 auto;
   ">
 
     <!--
-      COORDINATE NOTES (all px, absolute within this container):
-        Code box  : left=20,  top=10, w=400, right=420
-        Frame box : left=588, top=10, w=454, right=1042  center-x=815
-          promise subbox  abs y: 52 – 124   center-y = 88
-          locals  subbox  abs y: 130 – 202
-          frame outer bottom  ≈ 220
-        Generator : left=0, top=310, w=1300, right=1300
-          inner content: 1300 – 4(border) – 24(padding) = 1272px
-          3×flex:1 boxes with gap:10 → each ≈ 417px
-          ch subbox abs-left≈441, abs-right≈858, center-x≈649
-          flex row starts at abs y ≈ 310+2+10+35+8 = 365
+      COORDINATE NOTES — SVG viewBox="0 0 1460 720" coordinate space:
+        All SVG coordinates are in the 1460×720 logical space and scale
+        automatically with the container (--diag-w × --diag-h).
+        CSS box positions use calc(var(--diag-w) * X) / calc(var(--diag-h) * Y)
+        where X = old_px/1460 and Y = old_px/720.
 
-      ARROWS:
+        Code box  : left=0.014·w, top=0.014·h, w=0.274·w   (was 20/10/400 px)
+        Frame box : left=0.403·w, top=0.014·h, w=0.311·w   (was 588/10/454 px)
+          promise subbox SVG y ≈ 52–124  center-y = 88
+          frame outer bottom SVG y ≈ 220
+        Generator : left=0, top=0.431·h, w=0.890·w         (was 0/310/1300 px)
+          3×flex:1 boxes with gap:10 → each ≈ 0.297·w
+          ch subbox SVG center-x ≈ 649
+
+      ARROWS (SVG viewBox coords — do NOT change unless boxes move):
         Arrow 1 (solid teal, ch → whole frame):
-          (649, 365) → (649, 230)   vertical from ch top into frame bottom
-          label to the RIGHT of the arrow at x=663
+          (649, 365) → (649, 280)   vertical from ch top into frame bottom
         Arrow 2 (dashed teal, ch → promise subbox):
-          (858, 555) → right → (1320, 555) → up → (1320, 88) → left → (1043, 88)
-          starts at right edge of ch at promise() method level (4th method, y≈555)
-          vertical routing at x=1320 is 20px outside generator right border at 1300
+          (750, 590) → right → (1350, 590) → up → (1350, 88) → left → (1043, 88)
         Arrow 3 (blue, code → frame, "synthesized"):
-          (421, 90) → (587, 90)     horizontal, 166px gap for label
+          (421, 130) → (587, 130)   horizontal
     -->
 
     <!-- ═══ SVG arrows ═══ -->
     <!-- Each arrow + its label is wrapped in a <g id="..."> so that
          getBoundingClientRect() on the group returns the tight visual
          bounds of that arrow alone — used by the highlight overlay system. -->
-    <svg style="position:absolute;top:0;left:0;width:1460px;height:720px;
+    <svg viewBox="0 0 1460 720"
+         style="position:absolute;top:0;left:0;width:100%;height:100%;
                 overflow:visible;pointer-events:none;
                 font-size:calc(var(--diag-fs) * 0.85);">
       <defs>
@@ -273,14 +275,14 @@ struct SomeStringGenerator
         <line x1="421" y1="130" x2="587" y2="130"
               stroke="#2563EB" stroke-width="2" marker-end="url(#ah-blue)"/>
         <text x="504" y="122" fill="#2563EB" font-size="1em"
-              text-anchor="middle" font-style="italic">synthesized</text>
+              text-anchor="middle">synthesized</text>
       </g>
 
       <!-- Arrow 1: coroutine_handle ──▶ whole frame  (solid teal, vertical) -->
       <g id="diag-arrow-points-to">
-        <line x1="649" y1="365" x2="649" y2="280"
+        <line x1="649" y1="415" x2="649" y2="300"
               stroke="#0D9488" stroke-width="2" marker-end="url(#ah-teal)"/>
-        <text x="663" y="295" fill="#0D9488" font-size="1em">points to frame</text>
+        <text x="663" y="385" fill="#0D9488" font-size="1em">points to frame</text>
       </g>
 
       <!-- Arrow 2: coroutine_handle ──▶ promise subbox  (dashed teal, routed outside generator) -->
@@ -288,7 +290,7 @@ struct SomeStringGenerator
            Exits right, routes outside the generator's right border, then up to promise subbox. -->
       <g id="diag-arrow-promise">
         <polyline
-          points="750,590 1350,590 1350,88 1043,88"
+          points="750,603 1350,603 1350,63 1168,63"
           stroke="#0D9488" stroke-width="1.8" stroke-dasharray="6,4"
           fill="none" marker-end="url(#ah-teal)"/>
         <text fill="#0D9488" font-size="1em" text-anchor="middle"
@@ -297,13 +299,14 @@ struct SomeStringGenerator
     </svg>
 
     <!-- ═══ TOP-LEFT: C++20 source ═══ -->
-    <div style="position:absolute; left:20px; top:10px; width:400px;">
-      <div id="diag-code" style="background:#181828; border:1px solid #555; border-radius:7px;
+    <!-- left = 20/1460 = 0.014  top = 10/720 = 0.014  width = 400/1460 = 0.274 -->
+    <div style="position:absolute; left:calc(var(--diag-w) * 0.014); top:calc(var(--diag-h) * 0.014); width:calc(var(--diag-w) * 0.274);">
+      <div id="diag-code" style="background:#ffffff; border:2px solid #555; border-radius:7px;
                   padding:11px 14px;">
         <div style="color:#777; font-size:0.82em; margin-bottom:5px;
                     letter-spacing:.05em; text-transform:uppercase;">C++20 coroutine</div>
         <pre style="margin:0; background:none; padding:0;"><code class="language-cpp"
-          style="background:none; padding:0; font-size:0.92em; line-height:1.6;">
+          style="background:none; padding:0; font-size:1.1em; line-height:1.3;">
 generator&lt;int&gt; iota(int n) {
   while (true)
     co_yield n++;
@@ -315,7 +318,9 @@ for (int i : iota(3)) {
     </div>
 
     <!-- ═══ TOP-CENTRE: Coroutine Frame  (centred above coroutine_handle) ═══ -->
-    <div style="position:absolute; left:588px; top:10px; width:454px;">
+    <!-- left = 588/1460 = 0.403  top = 10/720 = 0.014  width = 454/1460 = 0.311 -->
+    <div style="position:absolute; left:calc(var(--diag-w) * 0.403);
+      top:calc(var(--diag-h) * 0.014); width:calc(var(--diag-w) * 0.411);">
       <div id="diag-frame" style="border:2px solid #7C3AED; border-radius:8px; padding:10px 12px;
                   background:rgba(124,58,237,0.06);">
         <div style="color:#6D28D9; font-weight:bold; text-align:center; font-size:1.05em;
@@ -346,7 +351,9 @@ for (int i : iota(3)) {
     </div>
 
     <!-- ═══ BOTTOM: generator&lt;int&gt; ═══ -->
-    <div id="diag-generator-complete" style="position:absolute; left:0; top:310px; width:1300px;">
+    <!-- left = 0  top = 310/720 = 0.431  width = 1300/1460 = 0.890 -->
+    <div id="diag-generator-complete" style="position:absolute; left:0;
+      top:calc(var(--diag-h) * 0.491); width:calc(var(--diag-w) * 0.890);">
       <div style="border:2px solid #2563EB; border-radius:8px; padding:10px 12px;
                   background:rgba(37,99,235,0.04);">
         <div style="color:#1D4ED8; font-weight:bold; text-align:left; font-size:1.05em;
@@ -361,11 +368,10 @@ for (int i : iota(3)) {
                       border-radius:6px; padding:8px 12px;">
             <div style="color:#1D4ED8; font-weight:bold; border-bottom:1px solid #2563EB40;
                         padding-bottom:4px; margin-bottom:6px;">promise_type</div>
-            <div style="color:#222; line-height:1.65; font-size:0.9em;">
+            <div style="color:#222; line-height:1.35; font-size:0.9em;">
               <code style="background:none;padding:0;">initial_suspend()</code><br/>
               <code style="background:none;padding:0;">final_suspend()</code><br/>
               <code style="background:none;padding:0;">yield_value(...)</code><br/>
-              <code style="background:none;padding:0;">get_return_object()</code><br/>
               <code style="background:none;padding:0;">return_void()</code><br/>
               <code style="background:none;padding:0;">unhandled_exception()</code><br/>
               <span style="color:#888;">&hellip;</span>
@@ -379,7 +385,7 @@ for (int i : iota(3)) {
                         padding-bottom:4px; margin-bottom:6px;">
               coroutine_handle&lt;promise_type&gt;
             </div>
-            <div style="color:#222; line-height:1.65; font-size:0.9em;">
+            <div style="color:#222; line-height:1.35; font-size:0.9em;">
               <code style="background:none;padding:0;">resume()</code><br/>
               <code style="background:none;padding:0;">destroy()</code><br/>
               <code style="background:none;padding:0;">done()</code><br/>
@@ -394,7 +400,7 @@ for (int i : iota(3)) {
                       border-radius:6px; padding:8px 12px;">
             <div style="color:#15803D; font-weight:bold; border-bottom:1px solid #15803D40;
                         padding-bottom:4px; margin-bottom:6px;">user interface</div>
-            <div style="color:#222; line-height:1.65; font-size:0.9em;">
+            <div style="color:#222; line-height:1.35; font-size:0.9em;">
               <code style="background:none;padding:0;">Iterator begin()</code><br/>
               <code style="background:none;padding:0;">Sentinel end()</code><br/>
               <span style="color:#888;">&hellip;</span>
@@ -444,8 +450,8 @@ for (int i : iota(3)) {
 			     for the generator that will always produce the most
 			     recently yielded value when being consumed."         style="position:absolute; pointer-events:none; z-index:20;
                 border:3px solid #FFD700; border-radius:9px;
-                box-shadow: 0 0 22px rgba(255,215,0,0.45);
-                background: rgba(255,215,0,0.05);">
+                box-shadow: 0 0 22px rgba(55,215,0,0.1);
+                background: rgba(255,215,0,0.15);">
     </div>
     <div class="fragment current-visible" data-fragment-index="1"
          data-highlight-target="diag-arrow-synth"
