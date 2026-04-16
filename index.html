@@ -82,11 +82,13 @@ TODO PDF download link + livestream server.
     commodity PC. If you have an interest in knowledge graphs, semantic web
     technologies, and data management in general, please come talk to me in the
     hallway.">
- I develop QLever, a highly scalable RDF/SPARQL graph database </li>
+      I develop <i>QLever</i> <ul> <li> Highly scalable RDF/SPARQL graph
+	database</li></ul> </li>
     <li class="fragment" data-fragment-index="2"
         data-speaker-notes="We recently also founded a company called qleverize which offers
 	       commercial support and extensions for our open-source database.">
- Cofounder of QLeverize (qleverize.com) where we commercialize QLever
+      Cofounder of QLeverize (qleverize.com) <ul> <li> commercializing QLever
+	</li> </ul>
     </li>
   </ul>
 
@@ -136,7 +138,7 @@ TODO PDF download link + livestream server.
   <p class="fragment" style="margin-top: 1.2em; font-size: 1.1em; font-weight: bold; border-top: 1px solid #666; padding-top: 0.6em;"
   data-speaker-notes="The most challenging feature to migrate back was our migration of
   C++20 coroutines, which motivated this talk.">
-    Which meant migrating our C++20 coroutines.
+    Which meant migrating C++20 coroutines.
   </p>
   <aside class="notes"></aside>
 </section>
@@ -196,10 +198,11 @@ struct SomeStringGenerator
 <section>
   <h2>Roadmap</h2>
   <ol class="single-col">
-    <li class="fragment"><strong>Refresher on coroutines</strong></li>
-    <li class="fragment"><strong>How to manually lower coroutines in C++17</strong></li>
-    <li class="fragment"><strong>Stackful alternative</strong> &mdash; no heap, no indirection</li>
-    <li class="fragment"><strong>How to automatically lower coroutines in C++17</strong></li>
+    <li class="fragment">Refresher on coroutines</li>
+    <li class="fragment"><strong>Manually</strong> migrating coroutines to C++17</li>
+    <li class="fragment">Implementing <strong>stackful</strong>, <strong>
+	strongly-typed</strong> coroutines</li>
+    <li class="fragment"><strong>Automatically</strong> migrating coroutines to C++17</li>
   </ol>
 </section>
 
@@ -274,7 +277,7 @@ struct SomeStringGenerator
       <g id="diag-arrow-synth">
         <line x1="421" y1="130" x2="587" y2="130"
               stroke="#2563EB" stroke-width="2" marker-end="url(#ah-blue)"/>
-        <text x="504" y="122" fill="#2563EB" font-size="1em"
+        <text x="504" y="122" fill="#2563EB" font-size="23"
               text-anchor="middle">synthesized</text>
       </g>
 
@@ -282,7 +285,7 @@ struct SomeStringGenerator
       <g id="diag-arrow-points-to">
         <line x1="649" y1="415" x2="649" y2="300"
               stroke="#0D9488" stroke-width="2" marker-end="url(#ah-teal)"/>
-        <text x="663" y="385" fill="#0D9488" font-size="1em">points to frame</text>
+        <text x="663" y="385" fill="#0D9488" font-size="23">points to frame</text>
       </g>
 
       <!-- Arrow 2: coroutine_handle ──▶ promise subbox  (dashed teal, routed outside generator) -->
@@ -293,7 +296,7 @@ struct SomeStringGenerator
           points="750,603 1350,603 1350,63 1168,63"
           stroke="#0D9488" stroke-width="1.8" stroke-dasharray="6,4"
           fill="none" marker-end="url(#ah-teal)"/>
-        <text fill="#0D9488" font-size="1em" text-anchor="middle"
+        <text fill="#0D9488" font-size="23" text-anchor="middle"
               transform="translate(1360,200) rotate(90)">→ promise()</text>
       </g>
     </svg>
@@ -305,7 +308,7 @@ struct SomeStringGenerator
                   padding:11px 14px;">
         <div style="color:#777; font-size:0.82em; margin-bottom:5px;
                     letter-spacing:.05em; text-transform:uppercase;">C++20 coroutine</div>
-        <pre style="margin:0; background:none; padding:0;"><code class="language-cpp"
+        <pre style="margin:0; background:none; padding:0; width:auto;"><code class="language-cpp"
           style="background:none; padding:0; font-size:1.1em; line-height:1.3;">
 generator&lt;int&gt; iota(int n) {
   while (true)
@@ -691,13 +694,13 @@ generator&lt;int&gt; iota(int start, int end) {
            falls through to CO_RESUME to clean up after the coroutine is resumed.">
         <pre><code class="language-cpp" data-trim data-noescape
              data-line-numbers="|2|3-5|6|7-8|" data-fragment-index="2">
-#define CO_YIELD(index, awaiterMem, value) 
+#define CO_YIELD(index, awaiterBuf, value) 
   suspendIdx_ = index; 
-  CO_INIT(awaiterMem, 
+  CO_INIT(awaiterBuf, 
           (promise().yield_value(value)));
-  CO_AWAIT_IMPL(CO_GET(awaiterMem));
+  CO_AWAIT_IMPL(CO_GET(awaiterBuf));
   suspend_label_##index: 
-  CO_GET(awaiterMem).await_resume(); 
+  CO_GET(awaiterBuf).await_resume(); 
   awaiterMem.destroy();
         </code></pre>
       </div>
@@ -705,13 +708,13 @@ generator&lt;int&gt; iota(int start, int end) {
 			    data-speaker-notes="">
         <pre><code class="language-cpp" data-trim data-noescape
              data-line-numbers="|1-2|3-4|5-7|8|" data-fragment-index="21">
-#define CO_RETURN_VOID(finalAwaiterMem, ...) 
+#define CO_RETURN_VOID(...) 
   promise().return_void();
   this-&gt;setDone(); 
   DESTROY_UNCONDITIONALLY(__VA_ARGS__) 
-  CO_INIT(finalAwaiterMem, 
+  CO_INIT(finalAwaiter_, 
          (promise().final_suspend()));
-  CO_AWAIT_IMPL(CO_GET(finalAwaiterMem))
+  CO_AWAIT_IMPL(CO_GET(finalAwaiter_))
   resumeFinalSuspendAndDestroy(); 
 
         </code></pre>
@@ -728,21 +731,24 @@ generator&lt;int&gt; iota(int start, int end) {
            coroutine_handle means symmetric transfer — hand control directly
            to the returned coroutine without going through the trampoline.">
         <pre><code class="language-cpp" data-trim data-noescape
-             data-line-numbers="|2-3|4-6|7-10|11-15|" data-fragment-index="10">
+             data-line-numbers="|2-6|8-10|11-14|15-18|" data-fragment-index="10">
 #define CO_AWAIT_IMPL(awaiter) {
   if (!awaiter.await_ready()) {
-    using T = decltype(awaiter.await_suspend(getHandle());
+    auto await_suspend = [&amp;](){
+      return awaiter.await_suspend(getHandle());
+    };
+    using T = decltype(await_suspend());
+
     if constexpr (std::is_void_v&lt;T&gt;) {
-      awaiter.await_suspend(handle);
+      await_suspend();
       return coroutine_handle&lt;void&gt;{};
     } else if constexpr (std::is_same_v&lt;T, bool&gt;) {
-      if (awaiter.await_suspend(getHandle())) {
+      if (await_suspend()) {
         return coroutine_handle&lt;void&gt;{};
       }
     } else {
-      // Symmetric transfer:
-      // await_suspend returns a handle.
-      return awaiter.await_suspend(getHandle();
+      static_assert(std::is_same_v&lt;T, coroutine_handle&lt;void&gt;&gt;)
+      return await_suspend(); // Symmetric transfer
     }
   }
 }
@@ -768,9 +774,9 @@ generator&lt;int&gt; iota(int start, int end) {
 
 <!-- Slide 9: coroutine_handle<void> -->
 <section>
-  <h3>coroutine_handle (1/2)</h3>
+  <h3>coroutine_handle (1/3)</h3>
   <pre><code class="language-cpp" data-trim data-noescape
-  data-line-numbers=|1-3|5-8|10-19|>
+  data-line-numbers=|1-3|5-8|10-12|14-18|>
 // Forward declaration.
 template &lt;typename Promise&gt;
 struct coroutine_handle;
@@ -814,7 +820,7 @@ struct coroutine_handle {
 
 <!-- Slide 10: coroutine_handle<Promise> -->
 <section>
-  <h3>coroutine_handle (2/2)</h3>
+  <h3>coroutine_handle (2/3)</h3>
   <pre><code class="language-cpp" data-trim data-noescape
   data-line-numbers="|6-20|22-25|">
 template &lt;typename Promise&gt;
@@ -854,14 +860,14 @@ struct coroutine_handle {
 
 <!-- Slide 11: coroutine_handle::resume (symmetric transfer) -->
 <section>
-  <h3>coroutine_handle::resume (Symmetric Transfer)</h3>
+  <h3>coroutine_handle (3/3) &mdash; resume (symmetric transfer)</h3>
   <pre><code class="language-cpp" data-trim data-noescape>
 template&lt;typename P&gt;
 void coroutine_handle&lt;P&gt;::resume() {
   auto cur = *this;
   while (cur) {
-    cur = cur.ptr-&gt;resumeFunc(
-        reinterpret_cast&lt;void*&gt;(next.ptr));
+    cur = cur.abi_-&gt;resumeFunc(
+        reinterpret_cast&lt;void*&gt;(next.abi_));
   }
 }
   </code></pre>
@@ -962,10 +968,10 @@ template &lt;typename... CoroArgs&gt;
 static auto coro_frame_base::ramp(CoroArgs&amp;&amp;... coroArgs) {
   // 1. Allocate the frame
   void* coroMem = promise_allocate&lt;PromiseType&gt;(
-      sizeof(Frame), std::forward&lt;CoroArgs&gt;(coroArgs)...);
+      sizeof(Frame), coroArgs...);
 
   // 2. Placement-new the Derived frame
-  auto* frame = new(coroMem) Frame{
+  auto* frame = new(coroMem) Frame{{},
       std::forward&lt;CoroArgs&gt;(coroArgs)...};
 
   // 3. get_return_object (stored on caller's stack)
@@ -1142,10 +1148,10 @@ generator&lt;string&gt; string_prepend(
 }
   </code></pre>
   <ul class="single-col">
-    <li>Iterator variables live across suspension points</li>
-    <li><code>prefix + *it</code> creates a temporary that must survive the yield</li>
-    <li>Locals need explicit lifetime management</li>
-  </ul>
+    <li>Local variables live across suspension points</li>
+    <ul> <li> Need explicit lifetime management </li> 
+      <li><code>it</code>, <code>end</code>, and <code>prefix + *it</code> temporary   
+    </ul> </ul>
 </section>
 
 <!-- Slide 31: Frame with coro_storage -->
@@ -1243,13 +1249,15 @@ void destroyImpl() {
   <div class="two-column">
     <div class="fragment" style="flex: 5;" data-fragment-index="1">
       <pre><code class="language-cpp" data-trim data-noescape
-           data-line-numbers="|1-4|6-10|12-17|19-21|" data-fragment-index="2">
+           data-line-numbers="|1-4|6-8|10-13| 15-20|22|" data-fragment-index="2">
 template &lt;typename Ref, bool isOwning&gt;
 struct coro_storage {
   using Obj = std::decay_t&lt;Ref&gt;,
   using Storage = std::conditional_t&lt;isOwning, Obj, Obj*&gt;;
 
   alignas(Storage) char buffer[sizeof(Storage)];
+  
+  // Emplacement via placement new macro.
 
   Storage* ptr() {
     return std::launder(
@@ -1265,7 +1273,6 @@ struct coro_storage {
 
   void destroy() { ptr()-&gt;~Storage();}
 
-  // Emplacement via placement new macro.
 };
       </code></pre>
     </div>
@@ -1373,14 +1380,14 @@ struct coro_storage {
         <td style="padding:0.4em 0.6em; vertical-align:top; border-bottom:2px solid #555;">
           <pre><code class="language-cpp" data-trim data-noescape>
 	  // () and {} do very different things here...
-	  std::string&amp;&amp; x(97, 'a');
+	  std::string&amp;&amp; x('a', 'b');
 	  std::string&amp;&amp; y{'a', 'b'};
           </code></pre>
         </td>
         <td style="padding:0.4em 0.6em; vertical-align:top; border-bottom:2px solid #555;">
           <pre><code class="language-cpp" data-trim data-noescape>
 	  // Preserve whether initialization was braced.
-	  CO_INIT(x, (97, 'a'));
+	  CO_INIT(x, ('a', 'b'));
 	  CO_INIT(y, {'a', 'b});
           </code></pre>
         </td>
@@ -1794,7 +1801,7 @@ coroutine_handle&lt;void&gt; resumeImpl() {
         CO_YIELD(1, awaiter_, CO_GET(parsed_));
         DESTROY_UNCONDITIONALLY(parsed_);  // clear __is_constructed flag
       } catch(...) {
-        DESTROY_IF_CONSTRUCTED(parsed_, awaiter_);
+        DESTROY_IF_CONSTRUCTED(awaiter_, parsed_);
       }
     } catch (const std::invalid_argument&amp;) {
       if (!catch_errors) throw;
