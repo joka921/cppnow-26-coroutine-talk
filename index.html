@@ -70,7 +70,7 @@ TODO PDF download link + livestream server.
   <img src="portrait-jk.jpg"
        style="position:absolute; top:100px; right:40px; width:190px; border-radius:8px;">
 
-  <ul style="max-width:1150px;">
+  <ul class="single-col">
     <li> C++ programmer for ca. 10 years</li>
     <li class="fragment" data-fragment-index="0"
         data-speaker-notes="I am currently researching and being employed at the University of
@@ -195,7 +195,7 @@ struct SomeStringGenerator
 <!-- Slide 3: Roadmap -->
 <section>
   <h2>Roadmap</h2>
-  <ol>
+  <ol class="single-col">
     <li class="fragment"><strong>Refresher on coroutines</strong></li>
     <li class="fragment"><strong>How to manually lower coroutines in C++17</strong></li>
     <li class="fragment"><strong>Stackful alternative</strong> &mdash; no heap, no indirection</li>
@@ -586,7 +586,7 @@ generator&lt;int&gt; iota(int start, int end) {
   </code></pre>
 
   <p>Disclaimer:</p>
-  <ul>
+  <ul class="single-col">
    <li> Everything is slideware! </li>
    <li> Ask for details! </li>
   </ul>
@@ -863,7 +863,8 @@ void coroutine_handle&lt;P&gt;::resume() {
   }
 }
   </code></pre>
-  Details on symmetric transfer: <a
+  Details on symmetric transfer:<br /> <a style="font-size: calc(var(--slide-h) *
+					   0.04);"
 				     href=https://lewissbaker.github.io/2020/05/11/understanding_symmetric_transfer>https://lewissbaker.github.io/2020/05/11/understanding_symmetric_transfer</a>
   <aside class="notes">
     The last thing missing for our custom coroutine handles is the resume
@@ -1114,7 +1115,7 @@ static void destroy(void* abi) {
 <section>
   <h2>What is still missing</h2>
 
-  <ul>
+  <ul class="single-col">
     <li> Local variables in the coroutine body. </li>
     <li> Exception handling </li>
     <li> Subleties when yielding/awaiting complex expressions.
@@ -1138,7 +1139,7 @@ generator&lt;string&gt; string_prepend(
   }
 }
   </code></pre>
-  <ul>
+  <ul class="single-col">
     <li>Iterator variables live across suspension points</li>
     <li><code>prefix + *it</code> creates a temporary that must survive the yield</li>
     <li>Locals need explicit lifetime management</li>
@@ -1831,7 +1832,7 @@ coroutine_handle&lt;void&gt; resumeImpl() {
 <!-- Slide 59: Problem with stackless -->
 <section>
   <h2>Characteristics of Stackless Coroutines</h2>
-  <ul>
+  <ul class="single-col">
     <li class="fragment"
       data-speaker-notes="As the coroutine frames
     are allocated on the heap by default, each invocation of a coroutine 
@@ -1891,7 +1892,7 @@ struct stackful_coroutine_handle {
   auto&amp; promise() { return frame.promise(); }
 };
   </code></pre>
-  <ul>
+  <ul class="single-col">
     <li class="fragment">Frame stored by value &rarr; stack or in registers</li>
     <li class="fragment">Direct member calls &rarr; fully inlineable</li>
   </ul>
@@ -1947,7 +1948,7 @@ struct stackful_coro_crtp {
 <!-- Slide 61a: Required changes to generator -->
 <section>
   <h3> Generator class: Changes required </h3>
-  <ul>
+  <ul class="single-col">
     <li class="fragment"> Generator is templated on coroutine handle, coroutine handle is templated on frame
     <li class="fragment"> Constructible from coroutine frame (previous slide)
     <li class="fragment"> Move of a generator will move the frame
@@ -2098,7 +2099,7 @@ struct generator_promise {
 <!-- Slide 66: LibTooling rewriter -->
 <section>
   <h2>Automating the rewrite</h2>
-  <ul>
+  <ul class="single-col">
     <li class="fragment" data-fragment-index=1 data-speaker-notes=
       "Until now, we have manually performed all the transformations from C++20
        coroutines to C++17. As usual for a conference talk, I hope that this
@@ -2162,7 +2163,7 @@ struct generator_promise {
 	the coroutine template, and rewrite the instantiations where all types
 	are concrete again.
 	       "> For templates, rewrite the instantiations as overloads/specializations.
-      <li> Only simple expressions supported in <code> co_yield/co_await </code></li>
+      <li class="fragment"> Only simple expressions supported in <code> co_yield/co_await </code></li>
   </ul>
   <aside class="notes"></aside>
 </section>
@@ -2259,11 +2260,14 @@ struct generator_promise {
         const h = (vw / vh > ratio) ? Math.floor(vh) : Math.floor(vw / ratio);
         window._slideWidth  = w;
         window._slideHeight = h;
+	console.log({ vw, vh, w, h});
         // Expose as CSS custom properties so font sizes can be expressed
         // as fractions of the slide height (see custom.css --code-font-scale).
         const root = document.documentElement;
         root.style.setProperty('--slide-w', w + 'px');
         root.style.setProperty('--slide-h', h + 'px');
+	root.style.setProperty('--r-main-font-size', Math.floor(h * 0.04) +
+	  'px');
       })();
 
       Reveal.initialize({
