@@ -24,9 +24,9 @@
 :root {
   --r-background-color:          #ffffff;
   --r-main-font:                 'Poppins', system-ui, sans-serif;
-  --r-main-font-size:            38px;
+  --r-main-font-size:            calc(var(--slide-h) * 0.038);
   --r-main-color:                #160E28;
-  --r-block-margin:              20px;
+  --r-block-margin:              calc(var(--slide-h) * 0.015);
   --r-heading-margin:            0 0 20px 0;
   --r-heading-font:              'Poppins', system-ui, sans-serif;
   --r-heading-color:             #3222A6;
