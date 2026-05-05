@@ -147,7 +147,9 @@
 /* ── Lists ────────────────────────────────────────────────────────── */
 .reveal ul,
 .reveal ol {
-  display: block;
+  display: flex;
+  flex-direction:column;
+  gap:0.3em;
   text-align: left;
 }
 

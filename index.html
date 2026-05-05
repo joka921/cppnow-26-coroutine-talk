@@ -59,16 +59,16 @@ TODO PDF download link + livestream server.
   <!-- QLeverize logo: in-flow at top, centered. Fragment 2 — invisible but
        reserves space until the QLeverize bullet is reached. -->
   <div class="fragment" data-fragment-index="2"
-       style="text-align:center; height:90px; line-height:90px;
+       style="text-align:center; height:calc(var(--diag-h) * 0.11); line-height:calc(var(--diag-h) * 0.11);
        margin-bottom:1.0em;">
-    <img src="qleverize.svg" style="height:80px; width:auto; vertical-align:middle;">
+    <img src="qleverize.svg" style="height:calc(var(--diag-h) * 0.10); width:auto; vertical-align:middle;">
   </div>
 
   <h3> About me </h3>
 
   <!-- Portrait: absolutely positioned top-right (clear of the logo strip above) -->
   <img src="portrait-jk.jpg"
-       style="position:absolute; top:100px; right:40px; width:190px; border-radius:8px;">
+       style="position:absolute; top:100px; right:40px; width:calc(var(--diag-h) * 0.23); border-radius:8px;">
 
   <ul class="single-col">
     <li> C++ programmer for ca. 10 years</li>
@@ -96,7 +96,7 @@ TODO PDF download link + livestream server.
        reserves space from the start so the list doesn't shift downward. -->
   <div class="fragment" data-fragment-index="0"
        style="text-align:center; margin-top:0.4em;">
-    <img src="unilogo.svg" style="height:220px; width:auto;">
+    <img src="unilogo.svg" style="height:calc(var(--diag-h) * 0.27); width:auto;">
   </div>
 
   <aside class="notes">
@@ -441,17 +441,7 @@ for (int i : iota(3)) {
     <div class="fragment current-visible" data-fragment-index="0"
          data-highlight-target="diag-code"
          data-highlight-padding="6"
-         data-speaker-notes="A coroutine is a function that uses one of the
-			     special keywords co_return, co_yield, or co_await.
-			     The co_yield and co_await keywords can return the
-			     control back to the caller. In contrast to ordinary
-			     functions, a coroutine can later be resumed at the
-			     position of the most recent co_yield or co_await.
-			     The return type of the coroutine (generator of int
-			     in our example) specifies the semantics of the
-			     coroutine. In our example defines input iterators
-			     for the generator that will always produce the most
-			     recently yielded value when being consumed."         style="position:absolute; pointer-events:none; z-index:20;
+	 style="position:absolute; pointer-events:none; z-index:20;
                 border:3px solid #FFD700; border-radius:9px;
                 box-shadow: 0 0 22px rgba(55,215,0,0.1);
                 background: rgba(255,215,0,0.15);">
@@ -1221,7 +1211,7 @@ void destroyImpl() {
   switch (suspendIdx_) {
     case 1:
       // Suspended at the co_yield
-      initial_awaiter_.destroy();
+      awaiter_.destroy();
       tmp_.destroy();
   }
 }
@@ -1802,6 +1792,7 @@ coroutine_handle&lt;void&gt; resumeImpl() {
         DESTROY_UNCONDITIONALLY(parsed_);  // clear __is_constructed flag
       } catch(...) {
         DESTROY_IF_CONSTRUCTED(awaiter_, parsed_);
+	throw;
       }
     } catch (const std::invalid_argument&amp;) {
       if (!catch_errors) throw;
@@ -1817,6 +1808,73 @@ coroutine_handle&lt;void&gt; resumeImpl() {
 <section data-visibility="hidden">
   <h2>Discussion</h2>
   <h3>Exception handling &mdash; questions?</h3>
+</section>
+
+<!-- ============================================================ -->
+<!-- Summary table: Coroutine issues and solutions                  -->
+<!-- ============================================================ -->
+<section>
+  <h3>Remaining subtle issues</h3>
+  <table style="font-size:0.65em; width:100%; border-collapse:collapse;">
+    <thead>
+      <tr>
+        <th style="border-bottom:2px solid #aaa; padding:0.3em 0.6em;">Coroutine body</th>
+        <th style="border-bottom:2px solid #aaa; padding:0.3em 0.6em;">Issue</th>
+        <th style="border-bottom:2px solid #aaa; padding:0.3em 0.6em;">Solution</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr class="fragment">
+        <td style="padding:0.3em 0.6em; vertical-align:top;">
+          <pre style="margin:0;"><code class="language-cpp" data-trim
+				       data-noescape>
+				       auto f = [&amp;](auto){...};
+</code></pre>
+        </td>
+        <td style="padding:0.3em 0.6em; vertical-align:top;">Type of lambda
+	  closure unknown, cannot be stored in frame</td>
+        <td style="padding:0.3em 0.6em; vertical-align:top;">Rewrite as explicit
+	closure class</td>
+      </tr>
+      <tr class="fragment">
+        <td style="padding:0.3em 0.6em; vertical-align:top;">
+          <pre style="margin:0;"><code class="language-cpp" data-trim data-noescape>
+for (const auto&amp; x : vec) {...}
+</code></pre>
+        </td>
+        <td style="padding:0.3em 0.6em; vertical-align:top;">Range-for
+	  introduces implicit variables for iterator, sentinel...</td>
+        <td style="padding:0.3em 0.6em; vertical-align:top;">Rewrite to explicit
+	  form, the migrate.
+      </tr>
+      <tr class="fragment">
+        <td style="padding:0.3em 0.6em; vertical-align:top;">
+          <pre style="margin:0;"><code class="language-cpp" data-trim data-noescape>
+co_yield f() + g(h() + "hello"s);
+</code></pre>
+        </td>
+        <td style="padding:0.3em 0.6em; vertical-align:top;">Need to destroy
+	  temporaries in correct order, but order is unspecified</td>
+        <td style="padding:0.3em 0.6em; vertical-align:top;">Limit to simple
+	  yield/await.
+      </tr>
+      <tr class="fragment">
+        <td style="padding:0.3em 0.6em; vertical-align:top;">
+          <pre style="margin:0;"><code class="language-cpp" data-trim
+				       data-noescape>
+// Assume promise.yield_value() 
+// takes by value:
+std::string s;
+co_yield s;
+	  </code></pre>
+        </td>
+        <td style="padding:0.3em 0.6em; vertical-align:top;">Need lifetime
+	  extension for function parameter of yield_value</td>
+        <td style="padding:0.3em 0.6em; vertical-align:top;">No Solution. Is
+	  this relevant?</code></td>
+      </tr>
+    </tbody>
+  </table>
 </section>
 
 <!-- ============================================================ -->
@@ -1883,8 +1941,24 @@ coroutine_handle&lt;void&gt; resumeImpl() {
     characterstics of the stackless C++20 coroutines.       </aside>
 </section>
 
-<!-- Slide 60: stackful_coroutine_handle -->
 <section>
+  <h3>Stackful coroutines, design overview</h3>
+  <ul class="single-col"> <li> Code is on Github </li>
+    <li class="fragment"> Idea: Store coroutine frame in coroutine handle <strong> by value
+      </strong> </li>
+      <ul> <li class="fragment"> Each coroutine has its own type, as handle is templated on the
+	  frame.</li> </ul>
+      <li class="fragment"> Need different infrastructure (handle/frame base class) </li>
+      <li class="fragment"> Rewritten coroutine bodies can stay the same (yay) </li>
+      <li class="fragment"> Performance: generators on par with handwritten ranges...
+	<ul> <li class="fragment"> ... after some tweaks </li> 
+	     <li class="fragment"> ... only on Clang so far </li>
+	 </ul>
+  </ul>
+</section>
+
+<!-- Slide 60: stackful_coroutine_handle -->
+<section data-visibility="hidden">
   <h2>stackful_coroutine_handle</h2>
   <pre><code class="language-cpp" data-trim data-noescape>
 template &lt;typename CoroFrame&gt;
@@ -1920,7 +1994,7 @@ struct stackful_coroutine_handle {
 </section>
 
 <!-- Slide 61: stackful_coro_crtp -->
-<section>
+<section data-visibility="hidden">
   <h2>Stackful CRTP Base for Frames</h2>
   <pre><code class="language-cpp" data-trim data-noescape>
 template &lt;typename Derived, typename PromiseType&gt;
@@ -1955,7 +2029,7 @@ struct stackful_coro_crtp {
 </section>
 
 <!-- Slide 61a: Required changes to generator -->
-<section>
+<section data-visibility="hidden">
   <h3> Generator class: Changes required </h3>
   <ul class="single-col">
     <li class="fragment"> Generator is templated on coroutine handle, coroutine handle is templated on frame
@@ -1982,7 +2056,7 @@ struct stackful_coro_crtp {
 
 
 <!-- Slide 63: iota: same frame, two policies -->
-<section>
+<section data-visibility="hidden">
   <h2>iota &mdash; Same Frame, Two Policies</h2>
   <pre><code class="language-cpp" data-trim data-noescape>
 template &lt;bool stackless = true&gt;
@@ -2013,7 +2087,7 @@ auto iota_unified(int start, int end) {
   </aside>
 </section>
 
-<section>
+<section data-visibility="hidden">
   <h3> Initial Benchmarks:</h3>
   TODO TABLE
 
@@ -2021,7 +2095,7 @@ auto iota_unified(int start, int end) {
   Assembly analysis: yielded ints are spilled to stack.
 </section>
 
-<section>
+<section data-visibility="hidden">
   <pre><code class="language-cpp" data-trim data-noescape>
 template &lt;typename T&gt;
 struct generator_promise {
@@ -2049,11 +2123,11 @@ struct generator_promise {
   </aside>
 </section>
 
-<section>
+<section data-visibility="hidden">
   updated benchmarks.
 </section> 
 <!-- Slide 64: Assembly comparison -->
-<section>
+ <section data-visibility="hidden">
   <h2>Assembly Comparison</h2>
   <div class="two-column">
     <div>
@@ -2078,7 +2152,7 @@ struct generator_promise {
 </section>
 
 <!-- Slide 65: Discussion -->
-<section>
+<section data-visibility="hidden">
   <h2>Discussion</h2>
   <h3>Stackful vs stackless tradeoffs?</h3>
   <div class="two-column">
@@ -2260,7 +2334,7 @@ struct generator_promise {
       const OUTER_H = 0.04;   // 3 % each side horizontally
       const OUTER_V = 0.02;   // 2 % each side vertically
 
-      (function () {
+      function handleResize () {
         const ratio = 16 / 9;
         const vw = window.innerWidth  * (1 - 2 * OUTER_H);
         const vh = window.innerHeight * (1 - 2 * OUTER_V);
@@ -2275,9 +2349,11 @@ struct generator_promise {
         const root = document.documentElement;
         root.style.setProperty('--slide-w', w + 'px');
         root.style.setProperty('--slide-h', h + 'px');
+        root.style.setProperty('--diag-h',  Math.floor(h * 0.825) + 'px');
 	root.style.setProperty('--r-main-font-size', Math.floor(h * 0.04) +
 	  'px');
-      })();
+      };
+      handleResize();
 
       Reveal.initialize({
         hash: true,
@@ -2297,6 +2373,7 @@ struct generator_promise {
           RevealSearch
         ]
       });
+
 
       // ─── Highlight overlay auto-positioning ───────────────────────────────
       // For each .highlight-container on the current slide, find every overlay
@@ -2327,6 +2404,15 @@ struct generator_promise {
       Reveal.on('ready',         e  => positionAllHighlights(e.currentSlide));
       Reveal.on('slidechanged',  e  => positionAllHighlights(e.currentSlide));
       Reveal.on('resize',        () => positionAllHighlights());
+
+      function reconfigureOnResize() {
+	handleResize();
+	Reveal.configure({ width: window._slideWidth,
+	  height: window._slideHeight});
+	positionAllHighlights();
+	Reveal.layout();
+      };
+      window.addEventListener('resize', reconfigureOnResize);
 
       // Store the original notes per slide so we can restore them
 Reveal.on('fragmentshown', event => {
