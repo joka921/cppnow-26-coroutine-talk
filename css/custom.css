@@ -123,3 +123,14 @@
 html.hide-slide-number .reveal .slide-number {
   display: none !important;
 }
+
+/* ── PDF export page size (used with ?print-pdf + Chrome print) ──────────
+   Forces each page to exactly Full HD 16:9. Open index.html?print-pdf,
+   then print → Save as PDF, paper size "Custom: 1920×1080 px" or just
+   "Custom" — the @page rule below tells the browser the target size.      */
+@media print {
+  @page {
+    size: 1920px 1080px;
+    margin: 0;
+  }
+}

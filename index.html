@@ -1941,9 +1941,10 @@ co_yield s;
     characterstics of the stackless C++20 coroutines.       </aside>
 </section>
 
+<!-- <section>  -->
 <section>
   <h3>Stackful coroutines, design overview</h3>
-  <ul class="single-col"> <li> Code is on Github </li>
+  <ul class="single-col">     
     <li class="fragment"> Idea: Store coroutine frame in coroutine handle <strong> by value
       </strong> </li>
       <ul> <li class="fragment"> Each coroutine has its own type, as handle is templated on the
@@ -1957,8 +1958,8 @@ co_yield s;
   </ul>
 </section>
 
-<!-- Slide 60: stackful_coroutine_handle -->
-<section data-visibility="hidden">
+<!--
+<section>
   <h2>stackful_coroutine_handle</h2>
   <pre><code class="language-cpp" data-trim data-noescape>
 template &lt;typename CoroFrame&gt;
@@ -1993,8 +1994,7 @@ struct stackful_coroutine_handle {
 
 </section>
 
-<!-- Slide 61: stackful_coro_crtp -->
-<section data-visibility="hidden">
+<section>
   <h2>Stackful CRTP Base for Frames</h2>
   <pre><code class="language-cpp" data-trim data-noescape>
 template &lt;typename Derived, typename PromiseType&gt;
@@ -2028,8 +2028,7 @@ struct stackful_coro_crtp {
   </aside>
 </section>
 
-<!-- Slide 61a: Required changes to generator -->
-<section data-visibility="hidden">
+<section>
   <h3> Generator class: Changes required </h3>
   <ul class="single-col">
     <li class="fragment"> Generator is templated on coroutine handle, coroutine handle is templated on frame
@@ -2055,8 +2054,7 @@ struct stackful_coro_crtp {
 </section>
 
 
-<!-- Slide 63: iota: same frame, two policies -->
-<section data-visibility="hidden">
+<section>
   <h2>iota &mdash; Same Frame, Two Policies</h2>
   <pre><code class="language-cpp" data-trim data-noescape>
 template &lt;bool stackless = true&gt;
@@ -2087,7 +2085,7 @@ auto iota_unified(int start, int end) {
   </aside>
 </section>
 
-<section data-visibility="hidden">
+<section>
   <h3> Initial Benchmarks:</h3>
   TODO TABLE
 
@@ -2095,7 +2093,7 @@ auto iota_unified(int start, int end) {
   Assembly analysis: yielded ints are spilled to stack.
 </section>
 
-<section data-visibility="hidden">
+<section>
   <pre><code class="language-cpp" data-trim data-noescape>
 template &lt;typename T&gt;
 struct generator_promise {
@@ -2123,11 +2121,10 @@ struct generator_promise {
   </aside>
 </section>
 
-<section data-visibility="hidden">
+<section>
   updated benchmarks.
-</section> 
-<!-- Slide 64: Assembly comparison -->
- <section data-visibility="hidden">
+</section>
+ <section>
   <h2>Assembly Comparison</h2>
   <div class="two-column">
     <div>
@@ -2151,8 +2148,7 @@ struct generator_promise {
   <p style="margin-top:1em">With the inline policy, <code>iota_unified&lt;false&gt;(0, n)</code> compiles to the same assembly as a hand-written <code>for</code> loop.</p>
 </section>
 
-<!-- Slide 65: Discussion -->
-<section data-visibility="hidden">
+<section>
   <h2>Discussion</h2>
   <h3>Stackful vs stackless tradeoffs?</h3>
   <div class="two-column">
@@ -2174,6 +2170,8 @@ struct generator_promise {
     </div>
   </div>
 </section>
+</section>
+-->
 
 <!-- ============================================================ -->
 <!-- SECTION 5: Rewriter Stub (2 slides)                           -->
@@ -2309,7 +2307,6 @@ struct generator_promise {
   <h1>Thank You!</h1>
   <h3>Questions?</h3>
   <p>Johannes Kalmbach</p>
-  <p><small>Slides &amp; code on GitHub</small></p>
 </section>
 
       </div>
@@ -2322,6 +2319,11 @@ struct generator_promise {
     <script src="node_modules/reveal.js/plugin/zoom/zoom.js"></script>
     <script src="node_modules/reveal.js/plugin/search/search.js"></script>
     <script>
+      // ── PDF export detection ──────────────────────────────────────────────
+      // When loaded with ?print-pdf, bypass dynamic sizing and use a fixed
+      // Full HD (1920×1080) canvas so every PDF page is exactly 16:9.
+      const isPrintPDF = /[?&]print-pdf/.test(window.location.search);
+
       // ── Outer margin around the slide box ────────────────────────────────
       // These fractions are taken off each side of the viewport before the
       // 16:9 box is computed.  Because minScale/maxScale are both 1, reveal.js
@@ -2331,27 +2333,33 @@ struct generator_promise {
       //   browser/screen edge:
       //     OUTER_H  — fraction of viewport WIDTH removed from left AND right
       //     OUTER_V  — fraction of viewport HEIGHT removed from top AND bottom
-      const OUTER_H = 0.04;   // 3 % each side horizontally
+      const OUTER_H = 0.04;   // 4 % each side horizontally
       const OUTER_V = 0.02;   // 2 % each side vertically
 
       function handleResize () {
-        const ratio = 16 / 9;
-        const vw = window.innerWidth  * (1 - 2 * OUTER_H);
-        const vh = window.innerHeight * (1 - 2 * OUTER_V);
-        // Height-constrained when available area is wider than 16:9; width-constrained otherwise.
-        const w = (vw / vh > ratio) ? Math.floor(vh * ratio) : Math.floor(vw);
-        const h = (vw / vh > ratio) ? Math.floor(vh) : Math.floor(vw / ratio);
+        let w, h;
+        if (isPrintPDF) {
+          const PDF_W = 1920, PDF_H = 1080;
+          w = Math.floor(PDF_W * (1 - 2 * OUTER_H));
+          h = Math.floor(PDF_H * (1 - 2 * OUTER_V));
+        } else {
+          const ratio = 16 / 9;
+          const vw = window.innerWidth  * (1 - 2 * OUTER_H);
+          const vh = window.innerHeight * (1 - 2 * OUTER_V);
+          // Height-constrained when available area is wider than 16:9; width-constrained otherwise.
+          w = (vw / vh > ratio) ? Math.floor(vh * ratio) : Math.floor(vw);
+          h = (vw / vh > ratio) ? Math.floor(vh) : Math.floor(vw / ratio);
+          console.log({ vw, vh, w, h});
+        }
         window._slideWidth  = w;
         window._slideHeight = h;
-	console.log({ vw, vh, w, h});
         // Expose as CSS custom properties so font sizes can be expressed
         // as fractions of the slide height (see custom.css --code-font-scale).
         const root = document.documentElement;
         root.style.setProperty('--slide-w', w + 'px');
         root.style.setProperty('--slide-h', h + 'px');
         root.style.setProperty('--diag-h',  Math.floor(h * 0.825) + 'px');
-	root.style.setProperty('--r-main-font-size', Math.floor(h * 0.04) +
-	  'px');
+        root.style.setProperty('--r-main-font-size', Math.floor(h * 0.04) + 'px');
       };
       handleResize();
 
@@ -2365,13 +2373,27 @@ struct generator_promise {
         margin: 0,       // no reveal.js outer margin — handled by CSS inner padding
         minScale: 1,     // never scale down: show viewport background as margins instead
         maxScale: 1,     // never scale up:  content stays at native pixel size always
+        pdfMaxPagesPerSlide: 1,
+        pdfSeparateFragments: false,
         plugins: [
           RevealMarkdown,
           RevealHighlight,
           RevealNotes,
           RevealZoom,
           RevealSearch
-        ]
+        ],
+	multiplex: {
+    // Example values. To generate your own, see the socket.io server instructions.
+    secret: null, // null so the clients do not have control of the master presentation
+    id: '53a30bb622bde905ca6edd90cf27a311fd020aa7c94111c15f81654ba7cbd45d', // id, obtained from socket.io server
+    url: 'https://multiplex.up.railway.app/' // Location of socket.io server
+  },
+
+  // Don't forget to add the dependencies
+  dependencies: [
+    { src: 'https://multiplex.up.railway.app/socket.io/socket.io.js', async: true },
+    { src: 'https://multiplex.up.railway.app/client.js', async: true }
+  ]
       });
 
 
@@ -2406,13 +2428,12 @@ struct generator_promise {
       Reveal.on('resize',        () => positionAllHighlights());
 
       function reconfigureOnResize() {
-	handleResize();
-	Reveal.configure({ width: window._slideWidth,
-	  height: window._slideHeight});
-	positionAllHighlights();
-	Reveal.layout();
+        handleResize();
+        Reveal.configure({ width: window._slideWidth, height: window._slideHeight });
+        positionAllHighlights();
+        Reveal.layout();
       };
-      window.addEventListener('resize', reconfigureOnResize);
+      if (!isPrintPDF) window.addEventListener('resize', reconfigureOnResize);
 
       // Store the original notes per slide so we can restore them
 Reveal.on('fragmentshown', event => {
