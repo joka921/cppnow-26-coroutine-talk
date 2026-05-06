@@ -34,6 +34,7 @@ jobs:
           cp index.html _site/
           cp -r css/ _site/
           cp *.svg *.png *.jpg _site/ 2>/dev/null || true
+          cp slides.pdf _site/ 2>/dev/null || true
           cp -r node_modules/reveal.js/dist  _site/node_modules/reveal.js/
           cp -r node_modules/reveal.js/plugin _site/node_modules/reveal.js/
 
